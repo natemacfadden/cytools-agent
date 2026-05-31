@@ -1,0 +1,24 @@
+services:
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama          # persist pulled models across restarts
+    # NVIDIA GPU (the Linux box): uncomment, needs the nvidia container toolkit
+    # gpus: all
+
+  harness:
+    build: .
+    ports:
+      - "8888:8888"                    # JupyterLab
+    volumes:
+      - ./cytools_agent:/app/cytools_agent  # live-edit the package, no rebuild
+      - ./:/app/work                        # notebooks and the rest of the repo
+    environment:
+      - OLLAMA_HOST=http://ollama:11434     # how the harness reaches the model
+    depends_on:
+      - ollama
+
+volumes:
+  ollama:

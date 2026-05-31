@@ -27,8 +27,7 @@ dependencies:
     - cygv
     - regfans
     - latticepts
-    # Editable CYTools install (sibling repo: ~/cytools next to ~/cytools-agent)
-    - -e ../cytools
+    - cytools
   # Agent / loop dependencies
   - openai
   - anthropic
