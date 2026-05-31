@@ -3,6 +3,11 @@ FROM condaforge/miniforge3
 
 WORKDIR /app
 
+# C/C++ compilers: some deps (e.g. cysignals via pplpy) build from source where
+# no prebuilt wheel exists (notably linux-aarch64).
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 # Build the conda env from the spec (CYTools and its deps come from there).
 COPY environment.yml .
 RUN conda env create -f environment.yml && conda clean -afy

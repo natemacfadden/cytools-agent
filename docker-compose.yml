@@ -11,12 +11,15 @@ services:
   harness:
     build: .
     ports:
-      - "8888:8888"                    # JupyterLab
+      - "8899:8888"                    # JupyterLab on host 8899 (8888 is taken by your host 'goo' server)
     volumes:
-      - ./cytools_agent:/app/cytools_agent  # live-edit the package, no rebuild
-      - ./:/app/work                        # notebooks and the rest of the repo
+      - ./cytools_agent:/app/cytools_agent:ro  # source: read-only, model can't write
+      - ./notebooks:/app/notebooks             # notebooks/interfaces (Jupyter saves here)
+      - ./scratch:/app/scratch                 # logs/outputs the agent writes
     environment:
-      - OLLAMA_HOST=http://ollama:11434     # how the harness reaches the model
+      - OLLAMA_HOST=http://ollama:11434        # how the harness reaches the model
+      - PYTHONPATH=/app                        # cytools_agent importable from notebooks/
+      - JUPYTER_TOKEN=cytools                  # fixed token -> localhost:8899/lab?token=cytools
     depends_on:
       - ollama
 
