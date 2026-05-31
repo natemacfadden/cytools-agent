@@ -48,7 +48,13 @@ def _json_type(annotation) -> str:
         annotation = next(
             (a for a in typing.get_args(annotation) if a is not type(None)), str
         )
+        origin = typing.get_origin(annotation)
 
+    # parameterized generics (e.g. list[float]) -> the bare container type
+    if origin in (list, tuple):
+        return "array"
+    if origin is dict:
+        return "object"
     return _JSON_TYPES.get(annotation, "string")
 
 

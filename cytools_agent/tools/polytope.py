@@ -37,7 +37,7 @@ _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool}; how much of each
 # non-model-facing
 # ----------------
 # cache management
-def _get_polytope(ks_ind: str) -> cytools.Polytope:
+def get_polytope(ks_ind: str) -> cytools.Polytope:
     """
     Reconstruct the cached Polytope associated with a ks_ind.
     """
