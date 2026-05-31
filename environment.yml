@@ -1,0 +1,43 @@
+name: cytools-agent
+channels:
+  - conda-forge
+dependencies:
+  # CYTools dependencies
+  - python
+  - numba
+  - numpy
+  - normaliz
+  - scipy
+  - cvxopt
+  - python-flint
+  - ppl
+  - joblib
+  - tqdm
+  - requests
+  - osqp
+  - pytest
+  - pip
+  - pip:
+    - ortools
+    - mosek
+    - triangulumancer
+    - pplpy
+    - pypalp
+    - qpsolvers
+    - cygv
+    - regfans
+    - latticepts
+    # Editable CYTools install (sibling repo: ~/cytools next to ~/cytools-agent)
+    - -e ../cytools
+  # Agent / loop dependencies
+  - openai
+  - anthropic
+  - httpx
+  - python-dotenv
+  # Common useful tools
+  - jupyterlab
+  - ipykernel
+  - matplotlib
+  - plotly
+  - ipywidgets
+  - anywidget
