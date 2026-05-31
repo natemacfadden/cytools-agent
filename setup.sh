@@ -8,7 +8,17 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "==> 1. Conda environment"
-source ~/miniforge3/etc/profile.d/conda.sh
+# use conda from PATH; otherwise source it from a common install location
+if ! command -v conda >/dev/null 2>&1; then
+    for base in "$HOME/miniforge3" "$HOME/miniconda3" "$HOME/anaconda3" "/opt/conda"; do
+        if [ -f "$base/etc/profile.d/conda.sh" ]; then
+            source "$base/etc/profile.d/conda.sh"
+            break
+        fi
+    done
+fi
+command -v conda >/dev/null 2>&1 || { echo "    conda not found" >&2; exit 1; }
+
 if conda env list | grep -qE "^cytools-agent\s"; then
     echo "    'cytools-agent' env already exists"
 else
