@@ -154,7 +154,7 @@ def get_polytope_info(ks_ind: str) -> dict:
         from face dimension to the list of point-counts of the faces of that
         dimension).
     """
-    p = _get_polytope(ks_ind)
+    p = get_polytope(ks_ind)
     return {
         "h11": int(p.h11(lattice="N")),
         "h21": int(p.h21(lattice="N")),
