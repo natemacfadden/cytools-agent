@@ -24,6 +24,7 @@
 # 'standard' imports
 import ast
 import json
+import re
 
 # tool-call parsing
 # -----------------
@@ -80,6 +81,24 @@ def extract_tool_call(content, known_tools):
             continue
         return {"name": obj["name"], "arguments": args}
     return {"error": reason} if reason else None
+
+
+def _strip_template_tags(text):
+    """
+    Strip chat-template boundary tags (<tool_call>/<tool_response>) that the
+    model wrote out as literal text characters instead of as real special
+    tokens.
+
+    These tags are turn/tool "barriers" that normally live in the tokenizer and
+    are consumed by the server. When a small model emits them by imitation they
+    are just plain text, so they leak into its final answer -- we remove that
+    text here.
+    """
+    if not text:
+        return text
+    text = re.sub(r"<tool_(call|response)>.*?</tool_\1>", "", text, flags=re.DOTALL)
+    text = re.sub(r"</?tool_(call|response)>", "", text)
+    return text.strip()
 
 
 # agent loop (the harness; not exposed to the model)
@@ -153,14 +172,28 @@ class Agent:
                 elif self.verbosity >= 2:
                     print(f"Agent: (recovered) tool call `{fb}`")
 
-                calls = [(f"fallback_{step}", fb["name"], fb["arguments"])]
+                # the model wrote the tool call as text, not a real tool_call,
+                # so rebuild it as one -- else the result below has nothing to
+                # attach to and it just re-issues the same call
+                call_id = f"fallback_{step}"
+                self.messages[-1] = {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": fb["name"],
+                                     "arguments": json.dumps(fb["arguments"])},
+                    }],
+                }
+                calls = [(call_id, fb["name"], fb["arguments"])]
             else:
                 if self.verbosity == 1:
                     print("Agent: Text message")
                 elif self.verbosity >= 2:
                     print(f"Agent: Text message `{msg}`")
 
-                return msg.content
+                return _strip_template_tags(msg.content)
 
             # run the tools
             for call_id, name, args in calls:

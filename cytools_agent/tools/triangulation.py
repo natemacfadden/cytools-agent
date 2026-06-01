@@ -106,7 +106,7 @@ def get_triangulation_info(ks_ind: str, heights: list[float]) -> dict:
         is_valid, is_fine, is_regular, is_star, hash, n_simplices
     """
     p = get_polytope(ks_ind)
-    t = p.triangulate(heights=heights)
+    t = p.triangulate(heights=heights, make_star=True)
 
     return {
         "is_valid": t.is_valid(),

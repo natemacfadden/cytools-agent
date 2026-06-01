@@ -34,16 +34,22 @@ import numpy as np
 import cytools
 
 # cytools-agent imports
+from cytools_agent.tools import polytope, triangulation
 from cytools_agent.tools.history import logged
-from cytools_agent.tools.polytope import get_polytope
 
-# persistent namespace shared across run_python / cytools_help calls
+# persistent namespace shared across run_python / cytools_help calls. It holds
+# raw cytools plus the trusted, model-facing tool functions, so code can call
+# the known-good helpers instead of rediscovering the cytools API.
 # ------------------------------------------------------------------
 _NS = {
     "cytools": cytools,
     "np": np,
-    "get_polytope": get_polytope,
     "Polytope": cytools.Polytope,
+    "get_polytope": polytope.get_polytope,
+    "fetch_polytopes": polytope.fetch_polytopes,
+    "get_polytope_info": polytope.get_polytope_info,
+    "all_inequiv_heights": triangulation.all_inequiv_heights,
+    "get_triangulation_info": triangulation.get_triangulation_info,
 }
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
 
@@ -55,9 +61,11 @@ def run_python(code: str) -> str:
     Execute Python in a persistent session and return its stdout.
 
     The namespace persists across calls, so variables and imports from earlier
-    calls remain available. Preloaded: `cytools`, `np`, `Polytope`, and
-    `get_polytope(ks_ind)` to rebuild a fetched polytope. Anything you want to
-    see must be printed; bare expression values are not returned.
+    calls remain available. Preloaded: `cytools`, `np`, `Polytope`,
+    `get_polytope(ks_ind)`, and the trusted tool functions (`fetch_polytopes`,
+    `get_polytope_info`, `all_inequiv_heights`, `get_triangulation_info`) --
+    prefer these over raw cytools. Anything you want to see must be printed;
+    bare expression values are not returned.
 
     Parameters
     ----------

@@ -25,6 +25,9 @@ else
     conda env create -f environment.yml
 fi
 
+echo "    installing cytools-agent (editable) so it imports from anywhere"
+conda run -n cytools-agent pip install -e . --quiet
+
 echo "==> 2. Jupyter kernel"
 conda run -n cytools-agent python -m ipykernel install --user --name cytools-agent --display-name "Python (cytools-agent)" >/dev/null
 echo "    kernel 'Python (cytools-agent)' registered"
