@@ -1,18 +1,18 @@
 # =============================================================================
-# This file is part of CYTools-agent.
+#    Copyright (C) 2026  Nate MacFadden for the Liam McAllister Group
 #
-# CYTools-agent is free software: you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation, either version 3 of the License, or (at your option) any later
-# version.
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
 #
-# CYTools-agent is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
-# details.
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License along with
-# CYTools-agent. If not, see <https://www.gnu.org/licenses/>.
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
@@ -21,7 +21,7 @@
 #               unfenced JSON instead of structured tool_calls.
 # -----------------------------------------------------------------------------
 
-# 'standard' imports
+# external imports
 import ast
 import json
 import re
@@ -29,9 +29,7 @@ import re
 # tool-call parsing
 # -----------------
 def _decode_at(text, i):
-    """
-    JSON object at index i (allows trailing junk), else a Python literal.
-    """
+    """JSON object at index i (allows trailing junk), else a Python literal."""
     try:
         obj, _ = json.JSONDecoder().raw_decode(text, i)
         return obj
@@ -96,7 +94,8 @@ def _strip_template_tags(text):
     """
     if not text:
         return text
-    text = re.sub(r"<tool_(call|response)>.*?</tool_\1>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<tool_(call|response)>.*?</tool_\1>", "", text,
+                  flags=re.DOTALL)
     text = re.sub(r"</?tool_(call|response)>", "", text)
     return text.strip()
 
@@ -139,7 +138,7 @@ class Agent:
         self.messages = [{"role": "system", "content": system_prompt}]
 
     def chat(self, user_message):
-        """Run one user turn through the tool loop and return the final answer."""
+        """Run one turn through the tool loop and return the final answer."""
         self.messages.append({"role": "user", "content": user_message})
         for step in range(self.max_steps):
             msg = self.client.chat.completions.create(
@@ -154,7 +153,8 @@ class Agent:
                 elif self.verbosity >= 2:
                     print(f"Agent: Tool call `{msg.tool_calls}`")
 
-                calls = [(c.id, c.function.name, json.loads(c.function.arguments))
+                calls = [(c.id, c.function.name,
+                          json.loads(c.function.arguments))
                          for c in msg.tool_calls]
             elif (fb := extract_tool_call(msg.content, set(self.tool_impls))):
                 # malformed call -> tell the model what was wrong and retry
@@ -162,9 +162,9 @@ class Agent:
                     if self.verbosity >= 1:
                         print(f"Agent: malformed tool call ({fb['error']})")
                     self.messages.append({"role": "user", "content":
-                        f"That wasn't a valid tool call: {fb['error']}. Reply with"
-                        ' exactly one JSON object: {"name": <tool>, "arguments":'
-                        " {...}}."})
+                        f"That wasn't a valid tool call: {fb['error']}. "
+                        'Reply with one JSON object: {"name": ..., '
+                        '"arguments": {...}}.'})
                     continue
 
                 if self.verbosity == 1:

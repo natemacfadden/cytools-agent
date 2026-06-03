@@ -59,8 +59,8 @@ else
     done
 fi
 
-echo "==> 5. Pull qwen2.5-coder:7b-instruct (~5 GB; idempotent — fast if cached)"
-ollama pull qwen2.5-coder:7b-instruct
+echo "==> 5. Pull qwen3:4b (~2.5 GB; idempotent — fast if cached)"
+ollama pull qwen3:4b
 
 echo
 echo "Done. Launch the notebook with:"

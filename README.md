@@ -18,7 +18,7 @@ Two ways. Both build the same environment from `environment.yml`.
 
 ```sh
 docker compose up --build
-docker compose exec ollama ollama pull qwen2.5-coder:7b-instruct   # once, ~5 GB
+docker compose exec ollama ollama pull qwen3:4b   # once, ~2.5 GB
 ```
 
 Then open `http://localhost:8899/lab?token=cytools` and run `notebooks/demo.ipynb`.

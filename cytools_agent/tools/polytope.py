@@ -1,18 +1,18 @@
 # =============================================================================
-# This file is part of CYTools-agent.
+#    Copyright (C) 2026  Nate MacFadden for the Liam McAllister Group
 #
-# CYTools-agent is free software: you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation, either version 3 of the License, or (at your option) any later
-# version.
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
 #
-# CYTools-agent is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
-# details.
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License along with
-# CYTools-agent. If not, see <https://www.gnu.org/licenses/>.
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
@@ -21,10 +21,10 @@
 #               low) in a module-level dict keyed by (h11, h21, ind) ids.
 # -----------------------------------------------------------------------------
 
-# CYTools import
+# external imports
 import cytools
 
-# cytools-agent imports
+# local imports
 from cytools_agent.tools.history import logged
 
 # module-level cache
@@ -38,15 +38,11 @@ _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool}; how much of each
 # ----------------
 # cache management
 def get_polytope(ks_ind: str) -> cytools.Polytope:
-    """
-    Reconstruct the cached Polytope associated with a ks_ind.
-    """
+    """Reconstruct the cached Polytope associated with a ks_ind."""
     return cytools.Polytope(_CACHE[ks_ind])
 
 def _cache_can_serve(h11: int, h21: int | None, limit: int) -> bool:
-    """
-    Whether the cache already holds the first `limit` polytopes of this query.
-    """
+    """True if the cache already holds the first `limit` of this query."""
     exact = _FETCHED.get((h11, h21))
     if exact and (exact["complete"] or exact["count"] >= limit):
         return True
@@ -118,7 +114,7 @@ def fetch_polytopes(limit: int, h11: int, h21: int | None = None) -> list[str]:
     )
 
     # save into caches; polytopes arrive in lexicographic (h11, h21, ind) order,
-    # so ind counts within each (h11, h21) group and resets when the group changes
+    # so ind counts within each (h11, h21) group, reset when it changes
     prev_group, ind = None, 0
     for p in polys:
         _h11, _h21 = int(p.h11(lattice="N")), int(p.h21(lattice="N"))
