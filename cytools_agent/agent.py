@@ -27,8 +27,6 @@ import json
 import re
 import time
 
-# tool-call parsing
-# -----------------
 def _decode_at(text, i):
     """JSON object at index i (allows trailing junk), else a Python literal."""
     try:
@@ -42,22 +40,8 @@ def _decode_at(text, i):
 
 
 def extract_tool_call(content, known_tools):
-    """
-    Recover the first tool call from a model's text content.
-
-    Parameters
-    ----------
-    content : str
-        The assistant message content to scan.
-    known_tools : set of str
-        The names of the available tools.
-
-    Returns
-    -------
-    dict or None
-        {"name", "arguments"} for a usable call, {"error": reason} if the text
-        looked like a call but was malformed, or None if there is no call.
-    """
+    """Recover the first tool call from a model's text content.
+    Returns {"name", "arguments"}, {"error": reason}, or None."""
     if not content:
         return None
     text = content.strip().replace("\x00", "")
@@ -83,16 +67,8 @@ def extract_tool_call(content, known_tools):
 
 
 def _strip_template_tags(text):
-    """
-    Strip chat-template boundary tags (<tool_call>/<tool_response>) that the
-    model wrote out as literal text characters instead of as real special
-    tokens.
-
-    These tags are turn/tool "barriers" that normally live in the tokenizer and
-    are consumed by the server. When a small model emits them by imitation they
-    are just plain text, so they leak into its final answer -- we remove that
-    text here.
-    """
+    """Remove literal <tool_call>/<tool_response> tags that small models
+    sometimes emit as plain text instead of as real special tokens."""
     if not text:
         return text
     text = re.sub(r"<tool_(call|response)>.*?</tool_\1>", "", text,
@@ -101,32 +77,11 @@ def _strip_template_tags(text):
     return text.strip()
 
 
-# agent loop (the harness; not exposed to the model)
-# ---------------------------------------------------
 class Agent:
     """
-    A stateful conversation over a tool-calling model.
-
-    .chat(text) appends the message, runs the tool loop until the model
-    produces a final answer, and keeps the history so later calls remember
-    earlier turns.
-
-    Parameters
-    ----------
-    client : openai.OpenAI
-        An OpenAI-compatible client (e.g. pointed at a local Ollama server).
-    model : str
-        The model id to call.
-    system_prompt : str
-        The system message that opens the conversation.
-    tools : list of dict
-        OpenAI tool schemas.
-    tool_impls : dict
-        Mapping from tool name to the Python callable.
-    max_steps : int, optional
-        Maximum tool-loop iterations per .chat call.
-    verbosity : int, optional
-        0 silent; 1 prints a tag per step; >=2 also prints the payload.
+    Stateful conversation over a tool-calling model. .chat(text) runs the
+    tool loop and returns the final answer; history accumulates across calls.
+    verbosity: 0 silent, 1 tags, >=2 full payloads.
     """
     def __init__(self, client, model, system_prompt, tools, tool_impls,
                  max_steps=20, verbosity=0):
@@ -137,9 +92,8 @@ class Agent:
         self.max_steps = max_steps
         self.verbosity = verbosity
         self.messages = [{"role": "system", "content": system_prompt}]
-        # wall-clock split between model (LLM) calls and tool computations
         self.timing = {"model": 0.0, "tools": 0.0}
-        self.tool_secs = {}  # per-tool cumulative seconds
+        self.tool_secs = {}
 
     def chat(self, user_message):
         """Run one turn through the tool loop and return the final answer."""
@@ -152,7 +106,6 @@ class Agent:
             self.timing["model"] += time.monotonic() - _t
             self.messages.append(msg)
 
-            # parse the message type
             if msg.tool_calls:
                 if self.verbosity == 1:
                     print("Agent: Tool call")
@@ -201,7 +154,6 @@ class Agent:
 
                 return _strip_template_tags(msg.content)
 
-            # run the tools
             for call_id, name, args in calls:
                 _t = time.monotonic()
                 try:
@@ -234,19 +186,17 @@ class Agent:
             "    get_cy_info, get_cy_cones, run_python, cytools_help)",
             "",
         ]
-        body = []
         def _get(m, k):
             return m.get(k) if isinstance(m, dict) else getattr(m, k, None)
 
+        body = []
         n_calls = 0
         for msg in self.messages:
-            role = _get(msg, "role")
-            content = _get(msg, "content")
+            if _get(msg, "role") != "assistant":
+                continue
             calls = _get(msg, "tool_calls")
-
-            if role in ("user", "system", "tool"):
-                pass
-            elif role == "assistant" and calls:
+            content = _get(msg, "content")
+            if calls:
                 for c in calls:
                     if isinstance(c, dict):
                         name = c["function"]["name"]
@@ -257,7 +207,7 @@ class Agent:
                     arg_str = ", ".join(f"{k}={v!r}" for k, v in args.items())
                     body.append(f"print({name}({arg_str}))")
                     n_calls += 1
-            elif role == "assistant" and content:
+            elif content:
                 text = _strip_template_tags(content).strip()
                 if text:
                     lines = text.splitlines()[:8]

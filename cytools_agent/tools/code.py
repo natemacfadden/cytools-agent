@@ -41,10 +41,7 @@ except ImportError:
 # local imports
 from cytools_agent.tools import polytope, triangulation, cy
 
-# persistent namespace shared across run_python / cytools_help calls. It holds
-# raw cytools plus the trusted, model-facing tool functions, so code can call
-# the known-good helpers instead of rediscovering the cytools API.
-# ------------------------------------------------------------------
+# persistent namespace: raw cytools + trusted tool functions
 _NS = {
     "cytools": cytools,
     "np": np,
@@ -60,12 +57,12 @@ _NS = {
     "get_cy_cones": cy.get_cy_cones,
 }
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
-_FIG_DIR = "scratch"  # run_python saves any plots here so they can be viewed
+_FIG_DIR = "scratch"
 _fig_count = 0
 
 
 def _save_open_figures():
-    """Save any figures the code left open; return a note with their paths."""
+    """Save open matplotlib figures; return a note with paths."""
     if plt is None or not plt.get_fignums():
         return ""
     global _fig_count

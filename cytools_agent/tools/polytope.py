@@ -29,8 +29,6 @@ import cytools
 
 # local imports
 
-# module-level cache
-# ------------------
 _CACHE   = {} # ks_ind -> vertices (list[list[int]])
 _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool}; how much of each
               # query is known as a contiguous prefix (from index 0) in the
@@ -48,7 +46,6 @@ _KS_H11 = {int(k): v for k, v in _KS["by_h11"].items()}
 
 # non-model-facing
 # ----------------
-# cache management
 def get_polytope(ks_ind: str) -> cytools.Polytope:
     """Reconstruct the cached Polytope associated with a ks_ind."""
     return cytools.Polytope(_CACHE[ks_ind])
@@ -70,10 +67,7 @@ def _cache_can_serve(h11: int, h21: int | None, limit: int) -> bool:
     return False
 
 def _get_cached_ks_inds(h11: int, h21: int | None) -> list[str]:
-    """
-    The cached ids matching (h11, h21), in canonical fetch order (h21 asc, then
-    ind asc). h21=None matches every h21.
-    """
+    """Cached ids for (h11, h21) sorted by (h21, ind); h21=None matches all."""
     matches = []
 
     for ks_ind in _CACHE:
@@ -81,9 +75,7 @@ def _get_cached_ks_inds(h11: int, h21: int | None) -> list[str]:
 
         if _h11 != h11 or (h21 is not None and _h21 != h21):
             continue
-        else:
-            # prepend h21 and ind for sorting...
-            matches.append((_h21, ind, ks_ind))
+        matches.append((_h21, ind, ks_ind))
 
     matches.sort()
     return [ks_ind for _, _, ks_ind in matches]
@@ -114,7 +106,6 @@ def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
 
         _CACHE[f"h11-{_h11}_h21-{_h21}_ind-{ind}"] = p.vertices().tolist()
 
-    # record how much of this query is now fully known
     n = len(polys)
     prev = _FETCHED.get((h11, h21))
     _FETCHED[(h11, h21)] = {

@@ -43,7 +43,6 @@ def _json_type(annotation) -> str:
     """
     origin = typing.get_origin(annotation)
 
-    # split optional/mixed types
     if origin in (typing.Union, types.UnionType):
         annotation = next(
             (a for a in typing.get_args(annotation) if a is not type(None)), str

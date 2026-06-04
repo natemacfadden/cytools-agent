@@ -16,9 +16,7 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  The default system prompt for the CYTools agent. Tuned on the
-#               task suite to make the model report concrete results, do the
-#               fewest tool calls, and route aggregation through run_python.
+# Description:  The default system prompt for the CYTools agent.
 # -----------------------------------------------------------------------------
 
 DEFAULT_SYSTEM_PROMPT = (

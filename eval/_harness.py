@@ -32,7 +32,6 @@ from cytools_agent.schema import function_to_schema
 from cytools_agent.agent import Agent
 from cytools_agent.prompt import DEFAULT_SYSTEM_PROMPT
 
-# client
 base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 client = OpenAI(base_url=base + "/v1", api_key="ollama")
 

@@ -32,10 +32,6 @@ import sys
 # local imports
 from eval._harness import run, TIMED_OUT
 
-# re-exported so rerun.py can import them
-__all__ = ["run", "grade", "hit", "TIMED_OUT"]
-
-
 def _flat(x):
     if isinstance(x, (list, tuple)):
         return [e for s in x for e in _flat(s)]
