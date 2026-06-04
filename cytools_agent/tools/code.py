@@ -57,7 +57,7 @@ _NS = {
     "get_heights": triangulation.get_heights,
     "get_triangulation_info": triangulation.get_triangulation_info,
     "get_cy": cy.get_cy,
-    "get_cy_info_at_point": cy.get_cy_info_at_point,
+    "get_cy_info": cy.get_cy_info,
     "get_cy_cones": cy.get_cy_cones,
 }
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
@@ -91,7 +91,7 @@ def run_python(code: str) -> str:
     The namespace persists across calls, so variables and imports from earlier
     calls remain available. Preloaded: `cytools`, `np`, `Polytope`, the trusted
     tool functions (`fetch_polytopes`, `get_polytope_info`,
-    `get_heights`, `get_triangulation_info`, `get_cy_info_at_point`,
+    `get_heights`, `get_triangulation_info`, `get_cy_info`,
     `get_cy_cones`), and `get_polytope(ks_ind)` /
     `get_cy(ks_ind, heights)` for raw objects
     (e.g. `get_cy(...).intersection_numbers(in_basis=True, format="dense")` or

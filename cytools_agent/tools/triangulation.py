@@ -29,78 +29,105 @@ from cytools_agent.tools.polytope import get_polytope
 
 # non-model-facing
 # ----------------
-def _guard_ntfe_call(poly: cytools.Polytope) -> tuple[float, str]:
+def _triangulation_difficulty(poly: cytools.Polytope) -> tuple[float, str]:
     """
-    Prevent the model from grabbing NTFEs of too large of a polytope.
+    Estimate how hard enumerating this polytope's triangulations is, from its
+    number of lattice points (NTFE/FRST counts blow up with the point count).
 
-    Returns an effort level (0 is maximally easy; 1 is maximally hard)
-    as well as a brief message about the difficulty.
+    Returns a difficulty in [0, 1] and a short message. Calibrated so that
+    h11~10-12 polytopes (~15+ points) land in the 'VERY tough' band.
     """
-    max_n_pts = max([len(f.points()) for f in poly.faces(2)])
+    n = len(poly.points())
 
-    if max_n_pts <= 12:
+    if n <= 9:            # h11 <~ 4
         return 0, "easy"
-    elif max_n_pts <= 15:
+    elif n <= 12:         # h11 ~ 5-7
         return 0.1, "doable"
-    elif max_n_pts <= 17:
+    elif n <= 14:         # h11 ~ 8
         return 0.5, "tough"
-    elif max_n_pts <= 21:
+    elif n <= 17:         # h11 ~ 10-12
         return 0.9, "VERY tough"
-    else:
+    else:                 # h11 >~ 13
         return 1, "too large"
 
 # model-facing
 # ------------
-@logged
-def get_heights(ks_ind: str, n: int | None = None, effort: float = 0.5,
-                seed: int | None = None) -> list[list[float]]:
-    """
-    Height vectors (each selecting a triangulation) for a polytope.
+def _shaped(heights: list[list[float]]) -> dict:
+    """Wrap a list of height vectors with its shape, so callers read the count
+    from `shape[0]` instead of counting the vectors."""
+    return {
+        "shape": [len(heights), len(heights[0]) if heights else 0],
+        "heights": heights,
+    }
 
-    Two modes:
-    - n is None: return ALL inequivalent triangulations - one height vector per
-      fine regular star triangulation (FRST), modulo equal restrictions to 2D
-      faces (an NTFE). Exact, but blows up with size, so it is guarded by
-      `effort` and raises for cases harder than that allows.
-    - n given: return a fast pseudorandom sample of up to `n` triangulations
-      (heights drawn around the Delaunay heights). Works at any size but is NOT
-      a fair sample, and may return fewer than `n`.
+@logged
+def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
+                effort: float = 0.5,
+                seed: int | None = None) -> dict:
+    """
+    Triangulations of a polytope, as a dict {"shape": [n_triangulations,
+    n_points], "heights": [...]}. "shape"[0] is HOW MANY triangulations there
+    are; "heights" is the list of height vectors (one per triangulation), so
+    heights[i] selects the i-th triangulation (e.g. for get_cy_info).
+
+    Modes:
+    - n given: a fast pseudorandom sample of up to `n` triangulations (heights
+      drawn around the Delaunay heights; NOT a fair sample). Works at any size.
+    - n omitted, kind="NTFE" (default): ALL inequivalent triangulations - FRSTs
+      modulo equivalent restrictions to 2D faces. This is what distinguishes
+      Calabi-Yaus, and is usually few.
+    - n omitted, kind="FRST": ALL fine regular star triangulations. Many more
+      than NTFE, and blows up much faster with size, so it is guarded more
+      strictly (refuses at smaller polytopes).
+
+    The exhaustive modes blow up with size, so they are guarded by `effort`
+    (raise when harder than allowed; FRST more aggressively).
 
     Parameters
     ----------
     ks_ind : str
         The id of a polytope, of the form "h11-X_h21-Y_ind-Z".
     n : int, optional
-        How many random triangulations to sample. If omitted, returns ALL
-        inequivalent triangulations instead.
+        Sample size for the fast random mode. Omit for an exhaustive mode.
+    kind : str, optional
+        For the exhaustive mode: "NTFE" (default) or "FRST".
     effort : float, optional
-        For the exhaustive (n=None) mode: how hard to try. >0 easiest cases
-        only, >0.1 moderate, >0.5 tough, >0.9 very tough, >1 any case.
+        How hard to try. >0 easiest only, >0.1 moderate, >0.5 tough, >0.9 very
+        tough, >1 any case.
     seed : int, optional
-        For the sampling (n given) mode: random seed, for reproducibility.
+        Random seed for the sampling (n given) mode.
 
     Returns
     -------
-    list of list of float
-        One height vector per triangulation.
+    dict
+        {"shape": [n_triangulations, n_points], "heights": list of height
+        vectors}. Read the count from shape[0].
     """
     p = get_polytope(ks_ind)
 
-    if n is None:
-        difficulty, msg = _guard_ntfe_call(p)
-        if difficulty > effort:
-            raise ValueError(
-                f"polytope {ks_ind} has difficulty level {difficulty} but "
-                f"effort level {effort}. Case seems too hard. Guard message "
-                f"'{msg}'."
-            )
-        return [h.tolist() for h in p.ntfe_frsts(heights_only=True)]
+    if n is not None:
+        tris = p.random_triangulations_fast(
+            N=n, max_retries=5, make_star=True, as_list=True,
+            progress_bar=False, seed=seed,
+        )
+        return _shaped([t.heights().tolist() for t in tris])
 
-    tris = p.random_triangulations_fast(
-        N=n, max_retries=5, make_star=True, as_list=True,
-        progress_bar=False, seed=seed,
-    )
-    return [t.heights().tolist() for t in tris]
+    difficulty, msg = _triangulation_difficulty(p)
+    if kind == "FRST":
+        difficulty = min(1.0, difficulty + 0.4)   # FRSTs blow up much faster
+    if difficulty > effort:
+        raise ValueError(
+            f"enumerating {kind} of {ks_ind} is difficulty {difficulty} but "
+            f"effort {effort}. Too hard ('{msg}'); use a smaller polytope."
+        )
+
+    if kind == "NTFE":
+        return _shaped([h.tolist() for h in p.ntfe_frsts(heights_only=True)])
+    if kind == "FRST":
+        return _shaped([t.heights().tolist() for t in p.all_triangulations(
+            only_fine=True, only_regular=True, only_star=True, as_list=True,
+            include_points_interior_to_facets=True)])
+    raise ValueError(f"kind must be 'NTFE' or 'FRST', got {kind!r}")
 
 @logged
 def get_triangulation_info(ks_ind: str, heights: list[float]) -> dict:

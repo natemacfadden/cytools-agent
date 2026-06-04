@@ -1,0 +1,92 @@
+# 30-question eval subset (sample_eval.py, seed 0, K=30)
+# format: [n] id=<corpus id>  kind  | truth=<ground truth>
+
+[ 1] id= 12  induced-2face-triangulation  | truth=18
+     For a fine regular star triangulation of the first polytope (ind-0) at h11=2, what is the total number of simplices in the induced triangulations of all its 2-faces?
+
+[ 2] id= 52  vc_triangulation_count  | truth=3
+     For the second (ind-1) h11=3, h21=45 Kreuzer-Skarke polytope, how many fine regular triangulations does its vector configuration (vc) flip graph contain?
+
+[ 3] id= 58  triangulation_count  | truth=142
+     How many fine regular star triangulations (FRSTs) does the first h11=5, h21=20 Kreuzer-Skarke polytope admit?
+
+[ 4] id= 71  hodge_numbers  | truth=[3, 43]
+     Fetch the first favorable h11=3 KS polytope, build its CY from the first NTFE triangulation. What is its (h11, h21)?
+
+[ 5] id= 86  n_facets  | truth=5
+     For the first polytope at h11=3, how many facets (3-faces) does it have?
+
+[ 6] id= 84  n_points  | truth=6
+     For the first polytope at h11=1, how many lattice points does it have?
+
+[ 7] id= 89  h11  | truth=3
+     For the first polytope at h11=3, what is its h11 (in the N lattice)?
+
+[ 8] id= 28  2-face-genera  | truth=3
+     What is the maximum 2-face genus of the first polytope (ind-0) at h11=3?
+
+[ 9] id=  7  vertex-count  | truth=9
+     How many vertices does the first polytope (ind-0) at h11=5 have?
+
+[10] id= 93  favorable_N  | truth=True
+     For the first polytope at h11=2, is it favorable in the N lattice?
+
+[11] id=100  n_ntfe_frsts  | truth=1
+     For the first polytope at h11=4, how many NTFE fine regular star triangulations (ntfe_frsts) does it admit?
+
+[12] id=105  trilayer_count  | truth=3
+     Among the first 30 polytopes at h11=3, how many are trilayer polytopes?
+
+[13] id= 75  intersection_numbers  | truth=4
+     For the first favorable h11=3 KS polytope's CY, how many distinct nonzero (in-basis) triple intersection numbers are there?
+
+[14] id= 38  kahler_cone  | truth=3
+     How many hyperplanes (facet normals) bound the toric Kahler cone of the Calabi-Yau from the first h11=2, h21=38 Kreuzer-Skarke polytope?
+
+[15] id= 40  polytope_vertices  | truth=5
+     How many vertices does the first h11=2, h21=38 Kreuzer-Skarke polytope have?
+
+[16] id=106  total_ntfe_frsts  | truth=12
+     Summed over the first 10 polytopes at h11=2, what is the total number of NTFE fine regular star triangulations (ntfe_frsts)?
+
+[17] id=  0  triple-intersection-numbers  | truth=[[0, 0, 1, 1], [0, 1, 1, 1]]
+     For the first polytope (ind-0) at h11=2 in the Kreuzer-Skarke database, what are the nonzero triple intersection numbers of the resulting Calabi-Yau threefold computed in a basis? Give them as a sorted list of [i, j, k, value] entries.
+
+[18] id=  1  triple-intersection-count  | truth=4
+     How many distinct nonzero triple intersection numbers (in a basis) does the Calabi-Yau threefold from the first polytope (ind-0) at h11=3 have?
+
+[19] id= 74  min_toric_curve_volume  | truth=1.0
+     For the first favorable h11=3 KS polytope's CY, at the stretched toric Kahler cone tip (stretch 1), what is the minimum toric-curve volume? Round to 6 decimals.
+
+[20] id= 80  prime_toric_divisors  | truth=9
+     For the first favorable h11=5 KS polytope's CY, how many prime toric divisors are there?
+
+[21] id= 16  euler-characteristic  | truth=-80
+     What is the Euler characteristic 2(h11 - h21) of the Calabi-Yau threefold from the first polytope (ind-0) at h11=3?
+
+[22] id= 17  hodge-number  | truth=26
+     What is the h21 Hodge number of the first polytope (ind-0) at h11=6?
+
+[23] id= 94  favorable_M  | truth=False
+     For the first polytope at h11=3, is it favorable in the M lattice?
+
+[24] id= 88  n_2faces  | truth=27
+     For the first polytope at h11=5, how many 2-faces does it have?
+
+[25] id= 23  dual-point-count  | truth=53
+     How many lattice points does the dual of the first polytope (ind-0) at h11=3 have?
+
+[26] id= 59  ntfe_count  | truth=2
+     How many 2-face-inequivalent FRSTs (NTFE triangulations) does the first h11=5, h21=20 Kreuzer-Skarke polytope have?
+
+[27] id= 10  favorable-count  | truth=48
+     Among the first 50 polytopes at h11=5, how many are favorable with respect to the N lattice?
+
+[28] id= 87  n_edges  | truth=14
+     For the first polytope at h11=4, how many edges (1-faces) does it have?
+
+[29] id= 11  facet-count  | truth=9
+     How many facets does the first polytope (ind-0) at h11=2 have?
+
+[30] id=  3  automorphism-order  | truth=36
+     What is the order of the automorphism group of the first polytope (ind-0) at h11=2?

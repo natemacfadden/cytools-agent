@@ -183,23 +183,27 @@ def get_polytope_info(ks_ind: str) -> dict:
     Returns
     -------
     dict
-        h11, h21, favorable_N, favorable_M, is_trilayer, n_points,
-        n_points_interior_to_facets, n_vertices, and facedim_to_facepts (a dict
-        from face dimension to the list of point-counts of the faces of that
-        dimension).
+        h11, h21, euler_characteristic (= 2*(h11-h21)), favorable_N,
+        favorable_M, is_trilayer, automorphism_order, n_points,
+        n_points_interior_to_facets, n_vertices, and facedim_to_nfaces (a dict
+        from face dimension d to HOW MANY d-faces there are; in 4d the 3-faces
+        are the facets).
     """
     p = get_polytope(ks_ind)
+    h11, h21 = int(p.h11(lattice="N")), int(p.h21(lattice="N"))
     return {
-        "h11": int(p.h11(lattice="N")),
-        "h21": int(p.h21(lattice="N")),
+        "h11": h11,
+        "h21": h21,
+        "euler_characteristic": 2 * (h11 - h21),
         "favorable_N": bool(p.is_favorable(lattice="N")),
         "favorable_M": bool(p.is_favorable(lattice="M")),
         "is_trilayer": bool(p.is_trilayer()),
+        "automorphism_order": len(p.automorphisms()),
         "n_points": len(p.points()),
         "n_points_interior_to_facets": len(p.points_interior_to_facets()),
         "n_vertices": len(p.vertices()),
-        "facedim_to_facepts": {
-            d: [len(f.points()) for f in p.faces(d)] for d in range(p.dim() + 1)
+        "facedim_to_nfaces": {
+            d: len(p.faces(d)) for d in range(p.dim() + 1)
         },
     }
 

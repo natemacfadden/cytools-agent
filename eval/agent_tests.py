@@ -45,12 +45,14 @@ from cytools_agent.schema import function_to_schema
 from cytools_agent.agent import Agent
 from cytools_agent.prompt import DEFAULT_SYSTEM_PROMPT
 
-MODEL = sys.argv[1] if len(sys.argv) > 1 else "qwen3:4b"
+MODELS = (sys.argv[1] if len(sys.argv) > 1 else "qwen3:4b").split(",")
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 2
 TIMEOUT = int(sys.argv[3]) if len(sys.argv) > 3 else 240  # wall-clock s/run
 
 
-class _TimedOut(Exception):
+# BaseException (not Exception) so the agent's `except Exception` around tool
+# calls does not swallow the alarm and let a run blow past the timeout
+class _TimedOut(BaseException):
     pass
 
 
@@ -66,7 +68,7 @@ client = OpenAI(base_url=base + "/v1", api_key="ollama")
 TOOL_FNS = [
     polytope.fetch_polytopes, polytope.get_polytope_info, polytope.ks_stats,
     triangulation.get_heights, triangulation.get_triangulation_info,
-    cy.get_cy_info_at_point, cy.get_cy_cones,
+    cy.get_cy_info, cy.get_cy_cones,
     code.run_python, code.cytools_help,
     files.read_file, history.save_history,
 ]
@@ -74,9 +76,9 @@ tools = [function_to_schema(fn) for fn in TOOL_FNS]
 tool_impls = {fn.__name__: fn for fn in TOOL_FNS}
 
 
-def make_agent(max_steps=20):
+def make_agent(model, max_steps=20):
     """A fresh Agent wired to the full tool set."""
-    return Agent(client, MODEL, DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
+    return Agent(client, model, DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
                  max_steps=max_steps, verbosity=0)
 
 
@@ -128,7 +130,7 @@ def used(agent, name):
 # ------------------
 # triangulation/CY tools, for asserting a "just fetch" task did NOT compute
 COMPUTE = {"get_heights", "get_triangulation_info",
-           "get_cy_info_at_point", "get_cy_cones"}
+           "get_cy_info", "get_cy_cones"}
 
 # pinned vertices of the case-1 favorable polytopes (their canonical identity)
 with open(os.path.join(os.path.dirname(__file__), "case1_verts.json")) as f:
@@ -202,7 +204,7 @@ CASES = [
             "answer": lambda ans, ag: "33.6" in ans,
             # actually computed it, and did not hardcode a point t
             "tools": lambda ans, ag: (
-                {"run_python", "get_cy_info_at_point"} & tool_names(ag)
+                {"run_python", "get_cy_info"} & tool_names(ag)
                 and "t=[" not in ran_code(ag).replace(" ", "")
             ),
             # no fabricated volumes: every decimal reported is the real ~33.6
@@ -283,7 +285,7 @@ CASES = [
         "prompt": "for the first 10 polytopes at h11=6, how many NTFEs do "
                   "each of them have? plot me a distribution of simplex counts",
         "max_steps": 18,
-        "hint": "per polytope, the NTFE count is len(get_heights(id)); "
+        "hint": "per polytope, the NTFE count is get_heights(id)['shape'][0]; "
                 "do not conflate it with the simplex count",
         "checks": {
             # reports the actual NTFE counts, not just the word "NTFE"
@@ -307,7 +309,7 @@ CASES = [
                   "volumes at each point",
         "max_steps": 20,
         "hint": "Kcup is very expensive at h11=40; pass cone='toric' to "
-                "get_cy_cones / get_cy_info_at_point for a cheap Kahler cone",
+                "get_cy_cones / get_cy_info for a cheap Kahler cone",
         "checks": {
             # reports a divisor-volume distribution
             "answer": lambda ans, ag: _has(ans, "divisor"),
@@ -316,7 +318,7 @@ CASES = [
             "tools": lambda ans, ag: (
                 "run_python" in tool_names(ag)
                 and used(ag, "get_heights")
-                and "get_cy_info_at_point" in ran_code(ag)
+                and "get_cy_info" in ran_code(ag)
                 and _has(ran_code(ag), "kahler", "mori", "tip_of_stretched",
                          "get_cy_cones")),
             # actually drew a histogram
@@ -327,9 +329,10 @@ CASES = [
 ]
 
 
-def main():
-    print(f"###### {MODEL}  (N={N} each) ######", flush=True)
-    suite_t0 = time.monotonic()
+def run_suite(model):
+    """Run every case for one model; print it; return {label: allpass}."""
+    print(f"\n###### {model}  (N={N} each) ######", flush=True)
+    results = {}
     for case in CASES:
         dims = list(case["checks"])
         tally = {d: 0 for d in dims}
@@ -338,7 +341,7 @@ def main():
         tool_secs = {}
         print(f"\n## [{case['label']}]", flush=True)
         for i in range(N):
-            ag = make_agent(case["max_steps"])
+            ag = make_agent(model, case["max_steps"])
             signal.alarm(TIMEOUT)
             try:
                 ans = (ag.chat(case["prompt"]) or "").strip().replace("\n", " ")
@@ -367,6 +370,21 @@ def main():
         top = sorted(tool_secs.items(), key=lambda kv: -kv[1])[:3]
         print(f"     time: model {case_model:.0f}s, tools {case_tools:.0f}s  ("
               + ", ".join(f"{k} {v:.0f}s" for k, v in top) + ")", flush=True)
+        results[case["label"]] = allpass
+    return results
+
+
+def main():
+    suite_t0 = time.monotonic()
+    results = {m: run_suite(m) for m in MODELS}
+    if len(MODELS) > 1:
+        print("\n###### all-pass comparison (x/N) ######", flush=True)
+        print("case".ljust(38) + "".join(m.rjust(12) for m in MODELS),
+              flush=True)
+        for case in CASES:
+            lab = case["label"]
+            cells = "".join(f"{results[m][lab]}/{N}".rjust(12) for m in MODELS)
+            print(lab[:36].ljust(38) + cells, flush=True)
     print(f"\n###### total {time.monotonic() - suite_t0:.0f}s ######",
           flush=True)
 

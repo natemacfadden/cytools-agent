@@ -17,10 +17,10 @@
 #
 # -----------------------------------------------------------------------------
 # Description:  Calabi-Yau layer. A CY follows trivially from a triangulation,
-#               so it is rebuilt on demand from (ks_ind, heights). Raw tensors
-#               (intersection numbers, c2) are reached in code via get_cy(...)
-#               in run_python; get_cy_info_at_point returns the kappa
-#               contractions at a point in Kahler moduli space.
+#               so it is rebuilt on demand from (ks_ind, heights). get_cy_info
+#               returns CY invariants (optionally volumes at a Kahler point);
+#               get_cy_cones returns the Mori/Kahler cone; raw objects are
+#               reached in code via get_cy(...) in run_python.
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -61,60 +61,71 @@ def _mori_cone(cy, which):
 # model-facing
 # ------------
 @logged
-def get_cy_info_at_point(ks_ind: str, heights: list[float],
-                         t: list[float] | None = None,
-                         cone: str = "Kcup") -> dict:
+def get_cy_info(ks_ind: str, heights: list[float],
+                t: list[float] | str | None = None,
+                cone: str = "Kcup") -> dict:
     """
-    Intersection-number contractions at a point in Kahler moduli space.
+    Invariants of the Calabi-Yau, optionally evaluated at a Kahler point.
 
-    For the CY of `ks_ind` triangulated by `heights`, picks a point `t`, checks
-    it lies in the Kahler cone, then contracts the in-basis intersection
-    numbers kappa with `t`: A = kappa@t (a matrix), divisor volumes =
-    0.5*kappa@t@t (a vector), and CY volume = (1/6)*kappa@t@t@t (a scalar).
+    Always returns the point-INDEPENDENT invariants (cheap; no cone needed):
+    Hodge numbers, Euler characteristic, second Chern class, the nonzero
+    in-basis triple intersection numbers, and the number of prime toric
+    divisors. If `t` is given, ALSO checks `t` is in the Kahler cone and adds
+    the divisor volumes (0.5*kappa@t@t) and CY volume (kappa@t@t@t / 6) there.
 
     Parameters
     ----------
     ks_ind : str
         The id of a fetched polytope, of the form "h11-X_h21-Y_ind-Z".
     heights : list[float]
-        Heights selecting the triangulation (from get_heights).
-    t : list[float], optional
-        A point in the basis Kahler moduli space (length h11). LEAVE THIS OUT
-        unless you have a specific point: by default it uses the tip of the
-        stretched Kahler cone, a canonical interior point. Do NOT hardcode an
-        arbitrary point like [1, 0, ...] - it almost never lies in the cone.
+        Heights selecting the triangulation (a get_heights(...)["heights"][i]).
+    t : list[float] or "tip", optional
+        Omit for invariants only. Pass "tip" to also evaluate volumes at the
+        tip of the stretched Kahler cone (a canonical interior point), or a
+        length-h11 vector for a specific point. Do NOT hardcode an arbitrary
+        point like [1, 0, ...] - it almost never lies in the cone.
     cone : str, optional
-        Which Kahler cone to use: "Kcup" (more accurate, the default) or
-        "toric" (cheaper, and much faster at large h11).
+        Which Kahler cone the point uses: "Kcup" (more accurate, the default)
+        or "toric" (cheaper, much faster at large h11).
 
     Returns
     -------
     dict
-        cone (which cone was used), t (the point used), A (= kappa@t),
-        divisor_volumes (= 0.5*kappa@t@t), and cy_volume (= kappa@t@t@t / 6).
+        h11, h21, euler_characteristic, second_chern_class,
+        intersection_numbers (nonzero, in-basis, as [i, j, k, value]), and
+        n_prime_toric_divisors; plus, if t is given, cone, t, divisor_volumes,
+        and cy_volume.
     """
     cy = get_cy(ks_ind, heights)
-    K = _mori_cone(cy, cone).dual()
-
+    dok = cy.intersection_numbers(in_basis=True, format="dok")
+    info = {
+        "h11": int(cy.h11()),
+        "h21": int(cy.h21()),
+        "euler_characteristic": int(2 * (cy.h11() - cy.h21())),
+        "second_chern_class": cy.second_chern_class(in_basis=True).tolist(),
+        "intersection_numbers": [[*map(int, k), int(round(v))]
+                                 for k, v in dok.items()],
+        "n_prime_toric_divisors": len(cy.prime_toric_divisors()),
+    }
     if t is None:
+        return info
+
+    K = _mori_cone(cy, cone).dual()
+    if t == "tip":
         t = K.tip_of_stretched_cone(1)   # canonical interior point
         if t is None:
             raise ValueError("could not find a stretched-cone tip; pass t")
     t = np.asarray(t, dtype=float)
-
     if not K.contains(t):
         raise ValueError(f"point t is not in the {cone} Kahler cone")
 
     kappa = cy.intersection_numbers(in_basis=True, format="dense")
-    A = np.tensordot(kappa, t, axes=([2], [0]))   # kappa @ t
-    ktt = A @ t                                    # kappa @ t @ t
-    return {
-        "cone": cone,
-        "t": t.tolist(),
-        "A": A.tolist(),
-        "divisor_volumes": (0.5 * ktt).tolist(),
-        "cy_volume": float(ktt @ t / 6),
-    }
+    ktt = np.tensordot(kappa, t, axes=([2], [0])) @ t   # kappa @ t @ t
+    info["cone"] = cone
+    info["t"] = t.tolist()
+    info["divisor_volumes"] = (0.5 * ktt).tolist()
+    info["cy_volume"] = float(ktt @ t / 6)
+    return info
 
 
 @logged
@@ -132,7 +143,7 @@ def get_cy_cones(ks_ind: str, heights: list[float],
     ks_ind : str
         The id of a fetched polytope, of the form "h11-X_h21-Y_ind-Z".
     heights : list[float]
-        Heights selecting the triangulation (from get_heights).
+        Heights selecting the triangulation (a get_heights(...)["heights"][i]).
     cone : str, optional
         Which Mori cone: "Kcup" (the capped/accurate one, the default) or
         "toric" (the toric Mori cone, as in the tutorial). Kcup gets very

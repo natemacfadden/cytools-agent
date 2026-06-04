@@ -1,0 +1,10 @@
+{"id": 62, "issues": ["not_self_contained"], "note": "Refers to 'the coni-Zp Calabi-Yau' whose lattice points and triangulation exist only in the code, not stated in the question."}
+{"id": 63, "issues": ["not_self_contained"], "note": "Names the coniZp.ipynb notebook but does not state the polytope points/simplices in the question itself."}
+{"id": 64, "issues": ["not_self_contained"], "note": "Refers to 'the coni-Zp Calabi-Yau' defined only by points in the code, not in the question."}
+{"id": 65, "issues": ["not_self_contained"], "note": "Refers to 'the coni-Zp Calabi-Yau from coniZp.ipynb'; polytope points live only in the code."}
+{"id": 66, "issues": ["not_self_contained"], "note": "Names coniZp.ipynb; the defining lattice points/triangulation are only in the code."}
+{"id": 67, "issues": ["not_self_contained"], "note": "Refers to 'the coni-Zp Calabi-Yau' defined only by code points, not specified in the question."}
+{"id": 68, "issues": ["not_self_contained"], "note": "Refers to coni-Zp CY from coniZp.ipynb; polytope not specified in the question."}
+{"id": 69, "issues": ["not_self_contained"], "note": "Refers to coni-Zp threefold from coniZp.ipynb; polytope points only in the code."}
+{"id": 70, "issues": ["not_self_contained"], "note": "Refers to coni-Zp threefold from coniZp.ipynb; polytope points only in the code."}
+{"id": 110, "issues": ["bad_terminology", "trivial"], "note": "Implementation-leaking phrasing ('its first vertex label', '(lib minface)') and the minimal face of a single vertex is always dimension 0."}
