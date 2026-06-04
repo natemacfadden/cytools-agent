@@ -16,10 +16,19 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Run a model on a stratified sample of the verified corpus and
-#               grade its free-text answer against ground truth.
+# Description:  Corpus-based evaluation for the CYTools agent. Two modes:
 #
-# Usage:  python eval/sample_eval.py qwen3:8b [n_samples] [timeout_s]
+#   Sampling (default): stratified random sample over corpus kinds, one
+#   question per kind. Good for a quick overall pass-rate estimate.
+#     python eval/eval.py qwen3:8b [k=12] [timeout=300]
+#
+#   Targeted: specific corpus ids, repeated reps times. Use this to measure
+#   whether a fix helps before committing it (run BEFORE, apply fix, run AFTER,
+#   compare; undo if it doesn't help).
+#     python eval/eval.py qwen3:8b --ids 54,57,58 [--reps 3] [--timeout 260]
+#
+# Both modes share the same grader and report PASS / FAIL / TIMEOUT (the last
+# is inconclusive and excluded from the scored denominator).
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -32,6 +41,9 @@ import sys
 # local imports
 from eval._harness import run, TIMED_OUT
 
+
+# grader
+# ------
 def _flat(x):
     if isinstance(x, (list, tuple)):
         return [e for s in x for e in _flat(s)]
@@ -80,15 +92,26 @@ def grade(ans, truth):
     return "PASS" if hit(ans, truth) else "FAIL"
 
 
-def main():
-    model = sys.argv[1] if len(sys.argv) > 1 else "qwen3:8b"
-    k = int(sys.argv[2]) if len(sys.argv) > 2 else 12
-    timeout = int(sys.argv[3]) if len(sys.argv) > 3 else 300
-    random.seed(0)
+def _print_result(label, status, question, truth, ans):
+    print(f"\n{label}  {status}", flush=True)
+    print(f"    Q: {question[:95]}", flush=True)
+    print(f"    truth: {truth}", flush=True)
+    print(f"    got:   {ans[:110]}", flush=True)
 
-    rows = [json.loads(line)
-            for line in open(os.path.join(os.path.dirname(__file__),
-                                          "corpus.jsonl"))]
+
+def _summary(npass, nfail, ntimeout):
+    scored = npass + nfail
+    print(f"\n###### {npass}/{scored} scored correct "
+          f"({ntimeout} timeout) ######", flush=True)
+
+
+# modes
+# -----
+def run_sample(model, k, timeout):
+    """Stratified random sample: one question per kind, up to k total."""
+    random.seed(0)
+    path = os.path.join(os.path.dirname(__file__), "corpus.jsonl")
+    rows = [json.loads(line) for line in open(path)]
     by_kind = {}
     for r in rows:
         by_kind.setdefault(r["kind"], []).append(r)
@@ -98,20 +121,66 @@ def main():
 
     print(f"###### {model} on {len(sample)} sampled corpus questions ######",
           flush=True)
-    passed = failed = timed = 0
+    npass = nfail = ntimeout = 0
     for i, r in enumerate(sample):
         ans = run(model, r["question"], timeout)
         status = grade(ans, r["answer"])
-        passed += status == "PASS"
-        failed += status == "FAIL"
-        timed += status == "TIMEOUT"
-        print(f"\n[{i+1}] {r['kind']} (id {r['id']})  {status}", flush=True)
+        npass += status == "PASS"
+        nfail += status == "FAIL"
+        ntimeout += status == "TIMEOUT"
+        _print_result(f"[{i+1}] {r['kind']} (id {r['id']})", status,
+                      r["question"], r["answer"], ans)
+    _summary(npass, nfail, ntimeout)
+
+
+def run_targeted(model, ids, reps, timeout):
+    """Specific corpus ids, repeated reps times each."""
+    corpus = os.path.join(os.path.dirname(__file__), "corpus.jsonl")
+    rows = {r["id"]: r for r in (json.loads(line) for line in open(corpus))}
+    print(f"###### {model} on ids {ids} x{reps} ######", flush=True)
+    npass = nfail = ntimeout = 0
+    for i in ids:
+        r = rows[i]
+        results = []
+        for _ in range(reps):
+            ans = run(model, r["question"], timeout)
+            status = grade(ans, r["answer"])
+            results.append((status, ans))
+            npass += status == "PASS"
+            nfail += status == "FAIL"
+            ntimeout += status == "TIMEOUT"
+        p = sum(s == "PASS" for s, _ in results)
+        to = sum(s == "TIMEOUT" for s, _ in results)
+        tag = f"{p}/{reps}" + (f" ({to} timeout)" if to else "")
+        print(f"\n[{i}] {r['kind']}  {tag}", flush=True)
         print(f"    Q: {r['question'][:95]}", flush=True)
         print(f"    truth: {r['answer']}", flush=True)
-        print(f"    got:   {ans[:110]}", flush=True)
-    scored = passed + failed
-    print(f"\n###### {model}: {passed}/{scored} scored correct "
-          f"({timed} timeout) ######", flush=True)
+        for status, ans in results:
+            print(f"    {status}: {ans[:110]}", flush=True)
+    _summary(npass, nfail, ntimeout)
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print("usage: eval.py model [k] [timeout]  OR"
+              "  eval.py model --ids 1,2,3 [--reps N] [--timeout S]")
+        sys.exit(1)
+
+    model = args[0]
+    rest = args[1:]
+
+    if "--ids" in rest:
+        i = rest.index("--ids")
+        ids = [int(x) for x in rest[i + 1].split(",")]
+        reps = int(rest[rest.index("--reps") + 1]) if "--reps" in rest else 3
+        timeout = int(rest[rest.index("--timeout") + 1]) \
+            if "--timeout" in rest else 300
+        run_targeted(model, ids, reps, timeout)
+    else:
+        k = int(rest[0]) if rest else 12
+        timeout = int(rest[1]) if len(rest) > 1 else 300
+        run_sample(model, k, timeout)
 
 
 if __name__ == "__main__":

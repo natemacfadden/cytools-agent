@@ -16,8 +16,8 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Shared harness for all eval scripts: Ollama client, tool set,
-#               timeout machinery, and the run()/grade() helpers.
+# Description:  Shared setup for all eval scripts: Ollama client, tool set,
+#               agent factory, and timeout machinery.
 # -----------------------------------------------------------------------------
 
 # external imports
