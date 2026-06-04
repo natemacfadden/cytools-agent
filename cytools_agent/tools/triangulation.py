@@ -24,7 +24,6 @@
 import cytools
 
 # local imports
-from cytools_agent.tools.history import logged
 from cytools_agent.tools.polytope import get_polytope
 
 # non-model-facing
@@ -60,7 +59,6 @@ def _shaped(heights: list[list[float]]) -> dict:
         "heights": heights,
     }
 
-@logged
 def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
                 effort: float = 0.5,
                 seed: int | None = None) -> dict:
@@ -129,7 +127,6 @@ def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
             include_points_interior_to_facets=True)])
     raise ValueError(f"kind must be 'NTFE' or 'FRST', got {kind!r}")
 
-@logged
 def get_triangulation_info(ks_ind: str, heights: list[float]) -> dict:
     """
     Get info about the triangulation defined by input heights.

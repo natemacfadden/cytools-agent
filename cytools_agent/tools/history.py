@@ -16,94 +16,31 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Call logging shared across cytools-agent tools. The `logged`
-#               decorator records each successful structured tool call;
-#               save_history renders the log to a runnable, self-documenting
-#               Python script.
+# Description:  Schema stub for the save_history tool. The actual implementation
+#               lives in Agent.save_script; the harness wires them together so
+#               the model can call save_history(path) to export the session.
 # -----------------------------------------------------------------------------
 
-# external imports
-import collections
-import datetime
-import functools
 
-# session-wide call log
-# ---------------------
-_HISTORY = []  # list of {"tool", "module", "args", "kwargs"}
-_SESSION_START = datetime.datetime.now().isoformat(timespec="seconds")
-
-# non-model-facing
-# ----------------
-def logged(fn):
-    """
-    Decorator that records each successful call of `fn` in _HISTORY.
-
-    Captures the tool name, its source module (so save_history can render the
-    correct import even when tools live in different files), and the call args.
-    `functools.wraps` preserves the signature/docstring for introspection.
-
-    Parameters
-    ----------
-    fn : callable
-        The tool function to wrap.
-
-    Returns
-    -------
-    callable
-        The wrapped function.
-    """
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        result = fn(*args, **kwargs)
-        _HISTORY.append({
-            "tool": fn.__name__,
-            "module": fn.__module__,
-            "args": list(args),
-            "kwargs": dict(kwargs),
-        })
-        return result
-    return wrapper
-
-# model-facing
-# ------------
 def save_history(path: str) -> dict:
     """
-    Write the log of structured tool calls so far to a runnable Python script.
+    Write the session as a standalone, runnable Python script.
 
-    The script imports the tools used (grouped by source module), then replays
-    each call wrapped in a print so running it re-executes the workflow and
-    echoes every result.
+    The script imports the tools, replays every tool call the agent made
+    (wrapped in print so results are visible), and includes the agent's text
+    as comments so the reasoning is preserved.
 
-    Only save when the user has asked for it or agreed to it. ASK THE USER for
-    the file `path` -- do NOT invent one. Saving writes to the user's disk.
+    Only call this when the user has asked for it. ASK THE USER for the file
+    path -- do NOT invent one. Writing to disk is irreversible.
 
     Parameters
     ----------
     path : str
-        The destination file path for the script.
+        Destination file path for the script.
 
     Returns
     -------
     dict
-        A dict with the number of calls written and the path.
+        {"path": ..., "n_calls": ...}
     """
-    # group imports by source module so tools from any file render correctly
-    mods = collections.defaultdict(set)
-    for h in _HISTORY:
-        mods[h["module"]].add(h["tool"])
-
-    lines = [
-        f"# cytools-agent session {_SESSION_START}",
-        f"# {len(_HISTORY)} call(s)",
-    ]
-    for module in sorted(mods):
-        lines.append(f"from {module} import {', '.join(sorted(mods[module]))}")
-    lines.append("")
-    for i, h in enumerate(_HISTORY):
-        parts = [repr(a) for a in h["args"]]
-        parts += [f"{k}={v!r}" for k, v in h["kwargs"].items()]
-        call = f"{h['tool']}({', '.join(parts)})"
-        lines.append(f'print(f"call {i}: `{call}` returned `{{{call}}}`")')
-    with open(path, "w") as f:
-        f.write("\n".join(lines) + "\n")
-    return {"saved": len(_HISTORY), "path": path}
+    raise RuntimeError("save_history must be wired to an Agent instance")

@@ -28,7 +28,6 @@ import os
 import cytools
 
 # local imports
-from cytools_agent.tools.history import logged
 
 # module-level cache
 # ------------------
@@ -125,7 +124,6 @@ def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
 
 # model-facing
 # ------------
-@logged
 def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
                     favorable: bool | None = None) -> list[str]:
     """
@@ -170,7 +168,6 @@ def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
             return fav[:limit]
         scan *= 2
 
-@logged
 def get_polytope_info(ks_ind: str) -> dict:
     """
     Return geometric information about a cached polytope.
@@ -207,7 +204,6 @@ def get_polytope_info(ks_ind: str) -> dict:
         },
     }
 
-@logged
 def ks_stats(h11: int, h21: int | None = None) -> dict:
     """
     Polytope counts in the Kreuzer-Skarke database of 4d reflexive polytopes.

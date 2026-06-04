@@ -49,8 +49,10 @@ tool_impls = {fn.__name__: fn for fn in TOOL_FNS}
 
 
 def make_agent(model, max_steps=20, verbosity=0):
-    return Agent(client, model, DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
-                 max_steps=max_steps, verbosity=verbosity)
+    ag = Agent(client, model, DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
+               max_steps=max_steps, verbosity=verbosity)
+    ag.tool_impls["save_history"] = ag.save_script   # bind to this instance
+    return ag
 
 
 # timeout (BaseException so the agent's `except Exception` can't swallow it)

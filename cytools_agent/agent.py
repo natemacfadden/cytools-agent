@@ -214,3 +214,59 @@ class Agent:
                 self.messages.append({"role": "tool", "tool_call_id": call_id,
                                       "content": str(result)})
         return "(max_steps exceeded)"
+
+    def save_script(self, path: str) -> dict:
+        """
+        Write the session as a standalone Python script.
+
+        Tool calls become runnable function calls (with print so results are
+        visible); the agent's text messages become # comments (first 8 lines
+        each, to keep the script readable).
+        """
+        header = [
+            "# cytools-agent session script",
+            "# run with:  python <this_file>.py",
+            "import sys; sys.path.insert(0, '.')",
+            "import warnings; warnings.filterwarnings('ignore')",
+            "from cytools_agent.tools import (",
+            "    fetch_polytopes, get_polytope_info, ks_stats,",
+            "    get_heights, get_triangulation_info,",
+            "    get_cy_info, get_cy_cones, run_python, cytools_help)",
+            "",
+        ]
+        body = []
+        def _get(m, k):
+            return m.get(k) if isinstance(m, dict) else getattr(m, k, None)
+
+        n_calls = 0
+        for msg in self.messages:
+            role = _get(msg, "role")
+            content = _get(msg, "content")
+            calls = _get(msg, "tool_calls")
+
+            if role in ("user", "system", "tool"):
+                pass
+            elif role == "assistant" and calls:
+                for c in calls:
+                    if isinstance(c, dict):
+                        name = c["function"]["name"]
+                        args = json.loads(c["function"]["arguments"])
+                    else:
+                        name = c.function.name
+                        args = json.loads(c.function.arguments)
+                    arg_str = ", ".join(f"{k}={v!r}" for k, v in args.items())
+                    body.append(f"print({name}({arg_str}))")
+                    n_calls += 1
+            elif role == "assistant" and content:
+                text = _strip_template_tags(content).strip()
+                if text:
+                    lines = text.splitlines()[:8]
+                    for line in lines:
+                        body.append(f"# {line}")
+                    if len(text.splitlines()) > 8:
+                        body.append("# ...")
+                    body.append("")
+
+        with open(path, "w") as f:
+            f.write("\n".join(header + body) + "\n")
+        return {"path": path, "n_calls": n_calls}

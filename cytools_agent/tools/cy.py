@@ -27,7 +27,6 @@
 import numpy as np
 
 # local imports
-from cytools_agent.tools.history import logged
 from cytools_agent.tools.polytope import get_polytope
 
 # non-model-facing
@@ -60,7 +59,6 @@ def _mori_cone(cy, which):
 
 # model-facing
 # ------------
-@logged
 def get_cy_info(ks_ind: str, heights: list[float],
                 t: list[float] | str | None = None,
                 cone: str = "Kcup") -> dict:
@@ -128,7 +126,6 @@ def get_cy_info(ks_ind: str, heights: list[float],
     return info
 
 
-@logged
 def get_cy_cones(ks_ind: str, heights: list[float],
                  cone: str = "Kcup") -> dict:
     """

@@ -40,7 +40,6 @@ except ImportError:
 
 # local imports
 from cytools_agent.tools import polytope, triangulation, cy
-from cytools_agent.tools.history import logged
 
 # persistent namespace shared across run_python / cytools_help calls. It holds
 # raw cytools plus the trusted, model-facing tool functions, so code can call
@@ -83,7 +82,6 @@ def _save_open_figures():
 
 # model-facing
 # ------------
-@logged
 def run_python(code: str) -> str:
     """
     Execute Python in a persistent session and return its stdout.
@@ -124,7 +122,6 @@ def run_python(code: str) -> str:
     return out
 
 
-@logged
 def cytools_help(name: str) -> dict:
     """
     Look up the signature and docstring of a CYTools object, without running it.
