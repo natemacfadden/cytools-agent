@@ -36,50 +36,13 @@ import signal
 import sys
 import time
 
-from openai import OpenAI
-
 # local imports
-from cytools_agent.tools import (polytope, triangulation, cy, code, files,
-                                 history)
-from cytools_agent.schema import function_to_schema
-from cytools_agent.agent import Agent
-from cytools_agent.prompt import DEFAULT_SYSTEM_PROMPT
+from cytools_agent.tools import polytope
+from eval._harness import make_agent, _TimedOut
 
 MODELS = (sys.argv[1] if len(sys.argv) > 1 else "qwen3:4b").split(",")
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 2
-TIMEOUT = int(sys.argv[3]) if len(sys.argv) > 3 else 240  # wall-clock s/run
-
-
-# BaseException (not Exception) so the agent's `except Exception` around tool
-# calls does not swallow the alarm and let a run blow past the timeout
-class _TimedOut(BaseException):
-    pass
-
-
-def _on_alarm(signum, frame):
-    raise _TimedOut
-
-
-signal.signal(signal.SIGALRM, _on_alarm)
-
-base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-client = OpenAI(base_url=base + "/v1", api_key="ollama")
-
-TOOL_FNS = [
-    polytope.fetch_polytopes, polytope.get_polytope_info, polytope.ks_stats,
-    triangulation.get_heights, triangulation.get_triangulation_info,
-    cy.get_cy_info, cy.get_cy_cones,
-    code.run_python, code.cytools_help,
-    files.read_file, history.save_history,
-]
-tools = [function_to_schema(fn) for fn in TOOL_FNS]
-tool_impls = {fn.__name__: fn for fn in TOOL_FNS}
-
-
-def make_agent(model, max_steps=20):
-    """A fresh Agent wired to the full tool set."""
-    return Agent(client, model, DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
-                 max_steps=max_steps, verbosity=0)
+TIMEOUT = int(sys.argv[3]) if len(sys.argv) > 3 else 240
 
 
 # grading helpers: read a finished agent's trace

@@ -40,8 +40,7 @@ def logged(fn):
 
     Captures the tool name, its source module (so save_history can render the
     correct import even when tools live in different files), and the call args.
-    `functools.wraps` preserves the signature/docstring so FastMCP can still
-    introspect the wrapped function.
+    `functools.wraps` preserves the signature/docstring for introspection.
 
     Parameters
     ----------

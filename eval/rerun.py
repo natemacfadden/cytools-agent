@@ -16,12 +16,12 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Re-run the cytools-agent on a SPECIFIC set of corpus questions
-#               (by id), grade against ground truth, repeating each a few times
-#               to see flakiness. Used to test whether a fix helps a known set
-#               of failing questions.
+# Description:  Re-run the agent on SPECIFIC corpus questions (by id) to test
+#               whether a fix helps. Runs each id reps times, reports
+#               PASS/FAIL/TIMEOUT per rep and a summary.
 #
-# Usage:  python eval/rerun.py qwen3:8b 3,8,19 [reps] [timeout_s]
+# Usage:  python eval/rerun.py qwen3:8b 54,57,58 [reps] [timeout_s]
+#         python eval/rerun.py qwen3:8b all        to run every id
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -30,12 +30,12 @@ import os
 import sys
 
 # local imports
-from eval.sample_eval import run, grade   # reuse the same agent + grader
+from eval._harness import run
+from eval.sample_eval import grade
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "qwen3:8b"
 _idarg = sys.argv[2] if len(sys.argv) > 2 else ""
-IDS = ([] if _idarg in ("", "all")
-       else [int(x) for x in _idarg.split(",")])
+IDS = [] if _idarg in ("", "all") else [int(x) for x in _idarg.split(",")]
 REPS = int(sys.argv[3]) if len(sys.argv) > 3 else 3
 TIMEOUT = int(sys.argv[4]) if len(sys.argv) > 4 else 300
 
@@ -45,7 +45,7 @@ def main():
             for r in (json.loads(line) for line in
                       open(os.path.join(os.path.dirname(__file__),
                                         "corpus.jsonl")))}
-    ids = IDS or list(rows)
+    ids = IDS or sorted(rows)
     print(f"###### {MODEL} on ids {ids} x{REPS} ######", flush=True)
     npass = nfail = ntimeout = 0
     for i in ids:
@@ -67,9 +67,8 @@ def main():
         for status, ans in results:
             print(f"    {status}: {ans[:110]}", flush=True)
     scored = npass + nfail
-    rate = f"{npass}/{scored}" if scored else "0/0"
-    print(f"\n###### {MODEL}: {rate} scored correct "
-          f"({ntimeout} timed out) ######", flush=True)
+    print(f"\n###### {MODEL}: {npass}/{scored} scored correct "
+          f"({ntimeout} timeout) ######", flush=True)
 
 
 if __name__ == "__main__":
