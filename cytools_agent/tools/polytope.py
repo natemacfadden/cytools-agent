@@ -22,6 +22,9 @@
 # -----------------------------------------------------------------------------
 
 # external imports
+import json
+import os
+
 import cytools
 
 # local imports
@@ -33,6 +36,16 @@ _CACHE   = {} # ks_ind -> vertices (list[list[int]])
 _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool}; how much of each
               # query is known as a contiguous prefix (from index 0) in the
               # cache
+
+# Kreuzer-Skarke polytope counts for the full 4d database
+# (calabi-yau-data/polytopes-4d on HuggingFace; 473,800,776 polytopes total).
+# ks_counts.json holds both by_pair (h11, h21) and by_h11 (h21-agnostic) counts.
+# ---------------------------------------------------------------------------
+with open(os.path.join(os.path.dirname(__file__), "ks_counts.json")) as _f:
+    _KS = json.load(_f)
+_KS_PAIR = {tuple(int(x) for x in k.split(",")): v
+            for k, v in _KS["by_pair"].items()}
+_KS_H11 = {int(k): v for k, v in _KS["by_h11"].items()}
 
 # non-model-facing
 # ----------------
@@ -76,10 +89,45 @@ def _get_cached_ks_inds(h11: int, h21: int | None) -> list[str]:
     matches.sort()
     return [ks_ind for _, _, ks_ind in matches]
 
+def _filter_favorable(ks_inds: list[str], favorable: bool | None) -> list[str]:
+    """Keep ids whose N-favorability matches `favorable` (None keeps all)."""
+    if favorable is None:
+        return ks_inds
+    return [i for i in ks_inds
+            if get_polytope(i).is_favorable(lattice="N") == favorable]
+
+def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
+    """Ensure the first `limit` of this query are cached (fetch if not)."""
+    if _cache_can_serve(h11, h21, limit):
+        return
+
+    polys = cytools.fetch_polytopes(
+        h11=h11, h21=h21, limit=limit, dim=4, lattice="N", as_list=True
+    )
+
+    # polytopes arrive in lexicographic (h11, h21, ind) order, so ind counts
+    # within each (h11, h21) group, reset when the group changes
+    prev_group, ind = None, 0
+    for p in polys:
+        _h11, _h21 = int(p.h11(lattice="N")), int(p.h21(lattice="N"))
+        ind = ind + 1 if (_h11, _h21) == prev_group else 0
+        prev_group = (_h11, _h21)
+
+        _CACHE[f"h11-{_h11}_h21-{_h21}_ind-{ind}"] = p.vertices().tolist()
+
+    # record how much of this query is now fully known
+    n = len(polys)
+    prev = _FETCHED.get((h11, h21))
+    _FETCHED[(h11, h21)] = {
+        "count": max(n, prev["count"] if prev else 0),
+        "complete": bool(prev and prev["complete"]) or (n < limit),
+    }
+
 # model-facing
 # ------------
 @logged
-def fetch_polytopes(limit: int, h11: int, h21: int | None = None) -> list[str]:
+def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
+                    favorable: bool | None = None) -> list[str]:
     """
     Fetch 4D reflexive polytopes from the Kreuzer-Skarke database.
 
@@ -98,39 +146,29 @@ def fetch_polytopes(limit: int, h11: int, h21: int | None = None) -> list[str]:
         The Hodge number h11 of the desired polytopes.
     h21 : int, optional
         The Hodge number h21 of the desired polytopes.
+    favorable : bool, optional
+        If set, return `limit` polytopes with this N-favorability, scanning
+        deeper into the list as needed (you only get fewer if the DB runs out).
 
     Returns
     -------
     list of str
         The ids of the matching polytopes.
     """
-    # serve from the cache when the query is already fully known
-    if _cache_can_serve(h11, h21, limit):
+    if favorable is None:
+        _ensure_cached(h11, h21, limit)
         return _get_cached_ks_inds(h11, h21)[:limit]
 
-    # otherwise hit the database
-    polys = cytools.fetch_polytopes(
-        h11=h11, h21=h21, limit=limit, dim=4, lattice="N", as_list=True
-    )
-
-    # save into caches; polytopes arrive in lexicographic (h11, h21, ind) order,
-    # so ind counts within each (h11, h21) group, reset when it changes
-    prev_group, ind = None, 0
-    for p in polys:
-        _h11, _h21 = int(p.h11(lattice="N")), int(p.h21(lattice="N"))
-        ind = ind + 1 if (_h11, _h21) == prev_group else 0
-        prev_group = (_h11, _h21)
-
-        _CACHE[f"h11-{_h11}_h21-{_h21}_ind-{ind}"] = p.vertices().tolist()
-
-    # record how much of this query is now fully known
-    n = len(polys)
-    prev = _FETCHED.get((h11, h21))
-    _FETCHED[(h11, h21)] = {
-        "count": max(n, prev["count"] if prev else 0),
-        "complete": bool(prev and prev["complete"]) or (n < limit),
-    }
-    return _get_cached_ks_inds(h11, h21)[:limit]
+    # favorable: scan deeper into the (h11, h21) list until `limit` matches are
+    # found (the first favorable one may be well past index 0), or the DB ends
+    scan = max(limit, 10)
+    while True:
+        _ensure_cached(h11, h21, scan)
+        ids = _get_cached_ks_inds(h11, h21)
+        fav = _filter_favorable(ids[:scan], favorable)
+        if len(fav) >= limit or len(ids) < scan:
+            return fav[:limit]
+        scan *= 2
 
 @logged
 def get_polytope_info(ks_ind: str) -> dict:
@@ -164,3 +202,31 @@ def get_polytope_info(ks_ind: str) -> dict:
             d: [len(f.points()) for f in p.faces(d)] for d in range(p.dim() + 1)
         },
     }
+
+@logged
+def ks_stats(h11: int, h21: int | None = None) -> dict:
+    """
+    Polytope counts in the Kreuzer-Skarke database of 4d reflexive polytopes.
+
+    Use this to CHECK whether polytopes exist (and how many) at given Hodge
+    numbers instead of guessing - the database spans h11 from 1 to 491.
+
+    Parameters
+    ----------
+    h11 : int
+        The Hodge number h11.
+    h21 : int, optional
+        The Hodge number h21. If omitted, counts over all h21 at this h11.
+
+    Returns
+    -------
+    dict
+        count and exists - for the exact (h11, h21) when h21 is given, else the
+        h21-agnostic total at this h11.
+    """
+    if h21 is not None:
+        n = _KS_PAIR.get((h11, h21), 0)
+        return {"h11": h11, "h21": h21, "count": n, "exists": n > 0}
+
+    n = _KS_H11.get(h11, 0)
+    return {"h11": h11, "count": n, "exists": n > 0}

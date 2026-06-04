@@ -25,13 +25,21 @@
 import contextlib
 import inspect
 import io
+import os
 import traceback
 
 import numpy as np
 import cytools
 
+try:
+    import matplotlib
+    matplotlib.use("Agg")  # headless: run_python saves figures, never shows
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
+
 # local imports
-from cytools_agent.tools import polytope, triangulation
+from cytools_agent.tools import polytope, triangulation, cy
 from cytools_agent.tools.history import logged
 
 # persistent namespace shared across run_python / cytools_help calls. It holds
@@ -45,10 +53,33 @@ _NS = {
     "get_polytope": polytope.get_polytope,
     "fetch_polytopes": polytope.fetch_polytopes,
     "get_polytope_info": polytope.get_polytope_info,
-    "all_inequiv_heights": triangulation.all_inequiv_heights,
+    "ks_stats": polytope.ks_stats,
+    "get_heights": triangulation.get_heights,
     "get_triangulation_info": triangulation.get_triangulation_info,
+    "get_cy": cy.get_cy,
+    "get_cy_info_at_point": cy.get_cy_info_at_point,
+    "get_cy_cones": cy.get_cy_cones,
 }
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
+_FIG_DIR = "scratch"  # run_python saves any plots here so they can be viewed
+_fig_count = 0
+
+
+def _save_open_figures():
+    """Save any figures the code left open; return a note with their paths."""
+    if plt is None or not plt.get_fignums():
+        return ""
+    global _fig_count
+    os.makedirs(_FIG_DIR, exist_ok=True)
+    paths = []
+    for n in plt.get_fignums():
+        _fig_count += 1
+        path = os.path.abspath(os.path.join(_FIG_DIR, f"fig_{_fig_count}.png"))
+        plt.figure(n).savefig(path, bbox_inches="tight")
+        paths.append(path)
+    plt.close("all")
+    return f"\n[saved {len(paths)} figure(s): {', '.join(paths)}]"
+
 
 # model-facing
 # ------------
@@ -58,11 +89,16 @@ def run_python(code: str) -> str:
     Execute Python in a persistent session and return its stdout.
 
     The namespace persists across calls, so variables and imports from earlier
-    calls remain available. Preloaded: `cytools`, `np`, `Polytope`,
-    `get_polytope(ks_ind)`, and the trusted tool functions (`fetch_polytopes`,
-    `get_polytope_info`, `all_inequiv_heights`, `get_triangulation_info`) --
-    prefer these over raw cytools. Anything you want to see must be printed;
-    bare expression values are not returned.
+    calls remain available. Preloaded: `cytools`, `np`, `Polytope`, the trusted
+    tool functions (`fetch_polytopes`, `get_polytope_info`,
+    `get_heights`, `get_triangulation_info`, `get_cy_info_at_point`,
+    `get_cy_cones`), and `get_polytope(ks_ind)` /
+    `get_cy(ks_ind, heights)` for raw objects
+    (e.g. `get_cy(...).intersection_numbers(in_basis=True, format="dense")` or
+    `.second_chern_class(...)`). Prefer these over raw cytools. Anything you
+    want to see must be printed; bare expression values are not returned. Any
+    matplotlib figure you make is saved to disk automatically (its path is
+    reported), so just build the plot -- no need to call savefig.
 
     Parameters
     ----------
@@ -82,6 +118,7 @@ def run_python(code: str) -> str:
         out = buf.getvalue() or "(no output)"
     except Exception:
         out = buf.getvalue() + "\n" + traceback.format_exc()
+    out += _save_open_figures()  # persist any plots so they can be viewed
     if len(out) > _MAX_OUTPUT:
         out = "...(truncated)...\n" + out[-_MAX_OUTPUT:]
     return out

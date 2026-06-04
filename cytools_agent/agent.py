@@ -25,6 +25,7 @@
 import ast
 import json
 import re
+import time
 
 # tool-call parsing
 # -----------------
@@ -136,14 +137,19 @@ class Agent:
         self.max_steps = max_steps
         self.verbosity = verbosity
         self.messages = [{"role": "system", "content": system_prompt}]
+        # wall-clock split between model (LLM) calls and tool computations
+        self.timing = {"model": 0.0, "tools": 0.0}
+        self.tool_secs = {}  # per-tool cumulative seconds
 
     def chat(self, user_message):
         """Run one turn through the tool loop and return the final answer."""
         self.messages.append({"role": "user", "content": user_message})
         for step in range(self.max_steps):
+            _t = time.monotonic()
             msg = self.client.chat.completions.create(
                 model=self.model, messages=self.messages, tools=self.tools
             ).choices[0].message
+            self.timing["model"] += time.monotonic() - _t
             self.messages.append(msg)
 
             # parse the message type
@@ -197,10 +203,14 @@ class Agent:
 
             # run the tools
             for call_id, name, args in calls:
+                _t = time.monotonic()
                 try:
                     result = self.tool_impls[name](**args)
                 except Exception as e:
                     result = f"ERROR: {e}"
+                dt = time.monotonic() - _t
+                self.timing["tools"] += dt
+                self.tool_secs[name] = self.tool_secs.get(name, 0.0) + dt
                 self.messages.append({"role": "tool", "tool_call_id": call_id,
                                       "content": str(result)})
         return "(max_steps exceeded)"

@@ -52,41 +52,55 @@ def _guard_ntfe_call(poly: cytools.Polytope) -> tuple[float, str]:
 # model-facing
 # ------------
 @logged
-def all_inequiv_heights(ks_ind: str, effort: float = 0.5) -> list[list[float]]:
+def get_heights(ks_ind: str, n: int | None = None, effort: float = 0.5,
+                seed: int | None = None) -> list[list[float]]:
     """
-    Enumerate height vectors, one per fine regular star triangulation (FRST) of
-    the polytope (mod triangulations with equivalent restrictions to 2D faces).
-    Each distinct triangulation is called an NTFE (non-two-face-equivalent).
+    Height vectors (each selecting a triangulation) for a polytope.
 
-    Cheap for small polytopes (h11<~17) but blows up with size, so double check
-    for calls with h11>~21.
+    Two modes:
+    - n is None: return ALL inequivalent triangulations - one height vector per
+      fine regular star triangulation (FRST), modulo equal restrictions to 2D
+      faces (an NTFE). Exact, but blows up with size, so it is guarded by
+      `effort` and raises for cases harder than that allows.
+    - n given: return a fast pseudorandom sample of up to `n` triangulations
+      (heights drawn around the Delaunay heights). Works at any size but is NOT
+      a fair sample, and may return fewer than `n`.
 
     Parameters
     ----------
     ks_ind : str
         The id of a polytope, of the form "h11-X_h21-Y_ind-Z".
+    n : int, optional
+        How many random triangulations to sample. If omitted, returns ALL
+        inequivalent triangulations instead.
     effort : float, optional
-        How hard to try for the heights. >0 means only go for the easiest cases.
-        >0.1 means go for moderate cases. >0.5 means go for tough cases. >0.9
-        means go for very tough cases. >1 means go for any case.
+        For the exhaustive (n=None) mode: how hard to try. >0 easiest cases
+        only, >0.1 moderate, >0.5 tough, >0.9 very tough, >1 any case.
+    seed : int, optional
+        For the sampling (n given) mode: random seed, for reproducibility.
 
     Returns
     -------
     list of list of float
-        One height vector per inequivalent FRST.
+        One height vector per triangulation.
     """
     p = get_polytope(ks_ind)
 
-    # guard the call
-    difficulty, msg = _guard_ntfe_call(p)
-    if difficulty > effort:
-        raise ValueError(
-            f"polytope {ks_ind} has difficulty level {difficulty} but effort "
-            f"level {effort}. Case seems too hard. Guard message '{msg}'."
-        )
+    if n is None:
+        difficulty, msg = _guard_ntfe_call(p)
+        if difficulty > effort:
+            raise ValueError(
+                f"polytope {ks_ind} has difficulty level {difficulty} but "
+                f"effort level {effort}. Case seems too hard. Guard message "
+                f"'{msg}'."
+            )
+        return [h.tolist() for h in p.ntfe_frsts(heights_only=True)]
 
-    heights = p.ntfe_frsts(heights_only=True)
-    return [h.tolist() for h in heights]
+    tris = p.random_triangulations_fast(
+        N=n, max_retries=5, make_star=True, as_list=True,
+        progress_bar=False, seed=seed,
+    )
+    return [t.heights().tolist() for t in tris]
 
 @logged
 def get_triangulation_info(ks_ind: str, heights: list[float]) -> dict:
