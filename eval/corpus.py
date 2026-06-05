@@ -20,11 +20,11 @@
 #
 #   build: collect Q&A from notebook-mining agent transcripts, gate on
 #   self-contained reproducibility, and write eval/corpus.jsonl.
-#     python eval/corpus.py build
+#     python -m eval.corpus build
 #
 #   verify: re-execute every corpus entry's code in a fresh interpreter and
 #   check that the printed result matches the stored answer.
-#     python eval/corpus.py verify
+#     python -m eval.corpus verify
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -184,8 +184,8 @@ def main():
     elif cmd == "verify":
         verify()
     else:
-        print("usage: corpus.py build | verify")
-        sys.exit(1)
+        print("usage: python -m eval.corpus build | verify")
+        sys.exit(0 if cmd in ("-h", "--help") else 1)
 
 
 if __name__ == "__main__":

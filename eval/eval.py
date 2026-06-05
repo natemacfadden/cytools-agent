@@ -20,12 +20,12 @@
 #
 #   Sampling (default): stratified random sample over corpus kinds, one
 #   question per kind. Good for a quick overall pass-rate estimate.
-#     python eval/eval.py qwen3:8b [k=12] [timeout=300]
+#     python -m eval.eval qwen3:8b [k=12] [timeout=300]
 #
 #   Targeted: specific corpus ids, repeated reps times. Use this to measure
 #   whether a fix helps before committing it (run BEFORE, apply fix, run AFTER,
 #   compare; undo if it doesn't help).
-#     python eval/eval.py qwen3:8b --ids 54,57,58 [--reps 3] [--timeout 260]
+#     python -m eval.eval qwen3:8b --ids 54,57,58 [--reps 3] [--timeout 260]
 #
 # Both modes share the same grader and report PASS / FAIL / TIMEOUT (the last
 # is inconclusive and excluded from the scored denominator).
@@ -160,12 +160,16 @@ def run_targeted(model, ids, reps, timeout):
     _summary(npass, nfail, ntimeout)
 
 
+USAGE = ("usage: python -m eval.eval model [k] [timeout]\n"
+         "       python -m eval.eval model --ids 1,2,3 "
+         "[--reps N] [--timeout S]")
+
+
 def main():
     args = sys.argv[1:]
-    if not args:
-        print("usage: eval.py model [k] [timeout]  OR"
-              "  eval.py model --ids 1,2,3 [--reps N] [--timeout S]")
-        sys.exit(1)
+    if not args or args[0] in ("-h", "--help"):
+        print(USAGE)
+        sys.exit(0 if args else 1)
 
     model = args[0]
     rest = args[1:]

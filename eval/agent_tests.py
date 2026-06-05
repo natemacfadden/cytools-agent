@@ -25,7 +25,7 @@
 #               higher-level behavioral cases.
 #
 # Usage (in the cytools-agent env, with Ollama serving the model):
-#     python eval/agent_tests.py qwen3:8b 5
+#     python -m eval.agent_tests qwen3:8b 5
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -39,6 +39,11 @@ import time
 # local imports
 from cytools_agent.tools import polytope
 from eval._harness import make_agent, _TimedOut
+
+if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+    print("usage: python -m eval.agent_tests "
+          "[model[,model2,...]] [N_reps] [timeout_s]")
+    sys.exit(0)
 
 MODELS = (sys.argv[1] if len(sys.argv) > 1 else "qwen3:8b").split(",")
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 2
