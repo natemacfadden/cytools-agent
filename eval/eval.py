@@ -29,6 +29,8 @@
 #
 # Both modes share the same grader and report PASS / FAIL / TIMEOUT (the last
 # is inconclusive and excluded from the scored denominator).
+#
+# All functions here are human-read (developer tooling).
 # -----------------------------------------------------------------------------
 
 # external imports

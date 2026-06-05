@@ -26,8 +26,7 @@ import cytools
 # local imports
 from cytools_agent.tools.polytope import get_polytope
 
-# non-model-facing
-# ----------------
+# human-read
 def _triangulation_difficulty(poly: cytools.Polytope) -> tuple[float, str]:
     """
     Estimate how hard enumerating this polytope's triangulations is, from its
@@ -49,8 +48,7 @@ def _triangulation_difficulty(poly: cytools.Polytope) -> tuple[float, str]:
     else:                 # h11 >~ 13
         return 1, "too large"
 
-# model-facing
-# ------------
+# human-read
 def _shaped(heights: list[list[float]]) -> dict:
     """Wrap a list of height vectors with its shape, so callers read the count
     from `shape[0]` instead of counting the vectors."""
@@ -59,6 +57,7 @@ def _shaped(heights: list[list[float]]) -> dict:
         "heights": heights,
     }
 
+# model-read
 def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
                 effort: float = 0.5,
                 seed: int | None = None) -> dict:
@@ -127,6 +126,7 @@ def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
             include_points_interior_to_facets=True)])
     raise ValueError(f"kind must be 'NTFE' or 'FRST', got {kind!r}")
 
+# model-read
 def get_triangulation_info(ks_ind: str, heights: list[float]) -> dict:
     """
     Get info about the triangulation defined by input heights.

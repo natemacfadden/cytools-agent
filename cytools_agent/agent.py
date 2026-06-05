@@ -28,6 +28,7 @@ import json
 import re
 import time
 
+# human-read
 def _decode_at(text, i):
     """JSON object at index i (allows trailing junk), else a Python literal."""
     try:
@@ -40,6 +41,7 @@ def _decode_at(text, i):
             return None
 
 
+# human-read
 def extract_tool_call(content, known_tools):
     """Recover the first tool call from a model's text content.
     Returns {"name", "arguments"}, {"error": reason}, or None."""
@@ -67,6 +69,7 @@ def extract_tool_call(content, known_tools):
     return {"error": reason} if reason else None
 
 
+# human-read
 def _strip_template_tags(text):
     """Remove literal <tool_call>/<tool_response> tags that small models
     sometimes emit as plain text instead of as real special tokens."""
@@ -78,6 +81,7 @@ def _strip_template_tags(text):
     return text.strip()
 
 
+# human-read (class + methods, except save_history which is model-read)
 class Agent:
     """
     Stateful conversation over a tool-calling model. .chat(text) runs the
@@ -185,6 +189,7 @@ class Agent:
             },
         }
 
+    # model-read (this docstring becomes the save_history tool schema)
     def save_history(self, path: str) -> dict:
         """
         Write the session as a standalone, runnable Python script.

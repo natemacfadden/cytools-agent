@@ -49,6 +49,12 @@ Polytopes are referenced by canonical string id (`h11-X_h21-Y_ind-Z`);
 triangulations are passed as height vectors. Tools take ids/heights, not live
 objects.
 
+> **Note.** These tools are *model-read*: their docstrings are written for the
+> LLM and are sent verbatim as its tool schema (so editing a docstring changes
+> what the model sees). Functions are tagged `# model-read` or `# human-read`
+> in the source to make this boundary explicit; everything under `eval/` is
+> human-read.
+
 | Tool | Description |
 |---|---|
 | `save_history(path)` | Session as a standalone runnable script: tool calls as code, agent text as comments. Auto-registered on every `Agent`. |

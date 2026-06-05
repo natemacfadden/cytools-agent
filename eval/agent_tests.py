@@ -26,6 +26,8 @@
 #
 # Usage (in the cytools-agent env, with Ollama serving the model):
 #     python -m eval.agent_tests qwen3:8b 5
+#
+# All functions here are human-read (developer tooling).
 # -----------------------------------------------------------------------------
 
 # external imports

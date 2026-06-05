@@ -36,6 +36,7 @@ _JSON_TYPES = {
 }
 
 
+# human-read
 def _json_type(annotation) -> str:
     """
     Map a type annotation to its JSON-schema type name. Unwraps `X | None` to
@@ -57,6 +58,7 @@ def _json_type(annotation) -> str:
     return _JSON_TYPES.get(annotation, "string")
 
 
+# human-read
 def function_to_schema(fn) -> dict:
     """
     Build an OpenAI-style tool schema from a function.

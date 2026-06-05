@@ -44,12 +44,12 @@ _KS_PAIR = {tuple(int(x) for x in k.split(",")): v
             for k, v in _KS["by_pair"].items()}
 _KS_H11 = {int(k): v for k, v in _KS["by_h11"].items()}
 
-# non-model-facing
-# ----------------
+# model-read (exposed in the run_python namespace)
 def get_polytope(ks_ind: str) -> cytools.Polytope:
     """Reconstruct the cached Polytope associated with a ks_ind."""
     return cytools.Polytope(_CACHE[ks_ind])
 
+# human-read
 def _cache_can_serve(h11: int, h21: int | None, limit: int) -> bool:
     """True if the cache already holds the first `limit` of this query."""
     exact = _FETCHED.get((h11, h21))
@@ -66,6 +66,7 @@ def _cache_can_serve(h11: int, h21: int | None, limit: int) -> bool:
 
     return False
 
+# human-read
 def _get_cached_ks_inds(h11: int, h21: int | None) -> list[str]:
     """Cached ids for (h11, h21) sorted by (h21, ind); h21=None matches all."""
     matches = []
@@ -80,6 +81,7 @@ def _get_cached_ks_inds(h11: int, h21: int | None) -> list[str]:
     matches.sort()
     return [ks_ind for _, _, ks_ind in matches]
 
+# human-read
 def _filter_favorable(ks_inds: list[str], favorable: bool | None) -> list[str]:
     """Keep ids whose N-favorability matches `favorable` (None keeps all)."""
     if favorable is None:
@@ -87,6 +89,7 @@ def _filter_favorable(ks_inds: list[str], favorable: bool | None) -> list[str]:
     return [i for i in ks_inds
             if get_polytope(i).is_favorable(lattice="N") == favorable]
 
+# human-read
 def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
     """Ensure the first `limit` of this query are cached (fetch if not)."""
     if _cache_can_serve(h11, h21, limit):
@@ -113,8 +116,7 @@ def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
         "complete": bool(prev and prev["complete"]) or (n < limit),
     }
 
-# model-facing
-# ------------
+# model-read
 def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
                     favorable: bool | None = None) -> list[str]:
     """
@@ -159,6 +161,7 @@ def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
             return fav[:limit]
         scan *= 2
 
+# model-read
 def get_polytope_info(ks_ind: str) -> dict:
     """
     Return geometric information about a cached polytope.
@@ -195,6 +198,7 @@ def get_polytope_info(ks_ind: str) -> dict:
         },
     }
 
+# model-read
 def ks_stats(h11: int, h21: int | None = None) -> dict:
     """
     Polytope counts in the Kreuzer-Skarke database of 4d reflexive polytopes.

@@ -61,6 +61,7 @@ _FIG_DIR = "scratch"
 _fig_count = 0
 
 
+# human-read
 def _save_open_figures():
     """Save open matplotlib figures; return a note with paths."""
     if plt is None or not plt.get_fignums():
@@ -77,8 +78,7 @@ def _save_open_figures():
     return f"\n[saved {len(paths)} figure(s): {', '.join(paths)}]"
 
 
-# model-facing
-# ------------
+# model-read
 def run_python(code: str) -> str:
     """
     Execute Python in a persistent session and return its stdout.
@@ -119,6 +119,7 @@ def run_python(code: str) -> str:
     return out
 
 
+# model-read
 def cytools_help(name: str) -> dict:
     """
     Look up the signature and docstring of a CYTools object, without running it.

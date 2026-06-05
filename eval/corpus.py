@@ -25,6 +25,8 @@
 #   verify: re-execute every corpus entry's code in a fresh interpreter and
 #   check that the printed result matches the stored answer.
 #     python -m eval.corpus verify
+#
+# All functions here are human-read (developer tooling).
 # -----------------------------------------------------------------------------
 
 # external imports

@@ -18,6 +18,9 @@
 # -----------------------------------------------------------------------------
 # Description:  Shared setup for all eval scripts: Ollama client, tool set,
 #               agent factory, and timeout machinery.
+#
+#               Everything under eval/ is human-read (developer tooling); none
+#               of it is shown to the model.
 # -----------------------------------------------------------------------------
 
 # external imports

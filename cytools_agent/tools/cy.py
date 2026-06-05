@@ -29,8 +29,7 @@ import numpy as np
 # local imports
 from cytools_agent.tools.polytope import get_polytope
 
-# non-model-facing
-# ----------------
+# model-read (exposed in the run_python namespace)
 def get_cy(ks_ind, heights):
     """The Calabi-Yau from triangulating `ks_ind` with `heights`."""
     poly = get_polytope(ks_ind)
@@ -45,6 +44,7 @@ def get_cy(ks_ind, heights):
     return tri.get_cy()
 
 
+# human-read
 def _mori_cone(cy, which):
     """
     The Mori cone in basis; its dual is the Kahler cone. 'Kcup' caps the Mori
@@ -57,8 +57,7 @@ def _mori_cone(cy, which):
         return cy.toric_mori_cone(in_basis=True)
     raise ValueError(f"cone must be 'Kcup' or 'toric', got {which!r}")
 
-# model-facing
-# ------------
+# model-read
 def get_cy_info(ks_ind: str, heights: list[float],
                 t: list[float] | str | None = None,
                 cone: str = "Kcup") -> dict:
@@ -126,6 +125,7 @@ def get_cy_info(ks_ind: str, heights: list[float],
     return info
 
 
+# model-read
 def get_cy_cones(ks_ind: str, heights: list[float],
                  cone: str = "Kcup") -> dict:
     """
