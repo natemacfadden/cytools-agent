@@ -30,7 +30,7 @@ import numpy as np
 from cytools_agent.tools.polytope import get_polytope
 
 # model-read (exposed in the run_python namespace)
-def get_cy(ks_ind, heights):
+def get_cy(ks_ind: str, heights: list[float]):
     """The Calabi-Yau from triangulating `ks_ind` with `heights`."""
     poly = get_polytope(ks_ind)
     if not poly.is_favorable(lattice="N"):

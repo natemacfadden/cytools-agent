@@ -67,6 +67,10 @@ def function_to_schema(fn) -> dict:
     hints; the description is the function's full docstring (so the model sees
     each parameter's meaning). Nothing needs to be written by hand.
 
+    Every parameter MUST be type-hinted: a missing hint raises here rather than
+    silently defaulting to "string" and feeding the model a wrong schema. (The
+    return type is not used by the schema, so it need not be hinted.)
+
     Parameters
     ----------
     fn : callable
@@ -81,7 +85,12 @@ def function_to_schema(fn) -> dict:
 
     props, required = {}, []
     for name, param in inspect.signature(fn).parameters.items():
-        props[name] = {"type": _json_type(hints.get(name, str))}
+        if name not in hints:
+            raise TypeError(
+                f"tool {fn.__name__!r}: parameter {name!r} has no type hint "
+                "(required so the model gets a correct schema)"
+            )
+        props[name] = {"type": _json_type(hints[name])}
         if param.default is inspect.Parameter.empty:
             required.append(name)
 
