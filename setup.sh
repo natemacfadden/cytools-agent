@@ -59,7 +59,7 @@ else
     done
 fi
 
-echo "==> 5. Pull qwen3:4b (~2.5 GB; idempotent — fast if cached)"
+echo "==> 5. Pull qwen3:4b (~2.5 GB; idempotent -- fast if cached)"
 ollama pull qwen3:4b
 
 echo

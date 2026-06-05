@@ -1,7 +1,9 @@
 # cytools-agent
 *[Nate MacFadden](https://github.com/natemacfadden), Liam McAllister Group, Cornell*
 
-An agent loop and tool harness that lets a local LLM (via [Ollama](https://ollama.com)) drive [CYTools](https://github.com/LiamMcAllisterGroup/cytools) — fetching polytopes, computing triangulations and Calabi-Yau invariants, running arbitrary CYTools code, and exporting the session as a standalone script.
+An agent loop and tool harness that lets a local LLM (via [Ollama](https://ollama.com)) drive [CYTools](https://github.com/LiamMcAllisterGroup/cytools) -- fetching polytopes, computing triangulations and Calabi-Yau invariants, running arbitrary CYTools code, and exporting the session as a standalone script.
+
+> **WARNING -- no sandbox.** The `run_python` tool executes model-generated code directly on your machine, with no isolation. Run only models and prompts you trust, on a machine where that is acceptable. There is currently no containment around what the model can read, write, or execute.
 
 ## Installation
 
@@ -35,11 +37,11 @@ agent = Agent(client, "qwen3:4b", DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
               max_steps=20, verbosity=2)
 # save_history is auto-registered on Agent and available to the model
 
-print(agent.chat("Fetch 3 polytopes at h11=5 and compute CY volumes at the Kähler cone tip."))
+print(agent.chat("Fetch 3 polytopes at h11=5 and compute CY volumes at the Kahler cone tip."))
 agent.save_history("session.py")  # or let the model call it
 ```
 
-`.chat()` is stateful — history accumulates across calls.
+`.chat()` is stateful -- history accumulates across calls.
 
 ## Tools
 
@@ -47,11 +49,11 @@ agent.save_history("session.py")  # or let the model call it
 |---|---|
 | `fetch_polytopes` | Fetch polytopes from the Kreuzer-Skarke database by Hodge numbers |
 | `get_polytope_info` | Hodge numbers, favorability, face counts, automorphism order, etc. |
-| `ks_stats` | Count polytopes at (h11, h21) — check existence before fetching |
+| `ks_stats` | Count polytopes at (h11, h21) -- check existence before fetching |
 | `get_heights` | Height vectors for triangulations (NTFE or FRST), returns shape metadata |
 | `get_triangulation_info` | Validate a triangulation and get simplex count |
-| `get_cy_info` | CY invariants (intersection numbers, Chern classes); optionally volumes at a Kähler point |
-| `get_cy_cones` | Mori cone rays (= Kähler cone hyperplane normals) |
+| `get_cy_info` | CY invariants (intersection numbers, Chern classes); optionally volumes at a Kahler point |
+| `get_cy_cones` | Mori cone rays (= Kahler cone hyperplane normals) |
 | `run_python` | Execute arbitrary Python in a persistent CYTools namespace |
 | `cytools_help` | Look up CYTools signatures/docstrings without running code |
 | `save_history` | Write the session as a standalone runnable Python script |

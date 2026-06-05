@@ -88,8 +88,6 @@ class Agent:
                  max_steps=20, verbosity=0):
         self.client = client
         self.model = model
-        self.tools = tools
-        self.tool_impls = tool_impls
         self.max_steps = max_steps
         self.verbosity = verbosity
         self.messages = [{"role": "system", "content": system_prompt}]
