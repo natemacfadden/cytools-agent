@@ -51,16 +51,16 @@ objects.
 
 | Tool | Description |
 |---|---|
+| `save_history(path)` | Session as a standalone runnable script: tool calls as code, agent text as comments. Auto-registered on every `Agent`. |
+| `cytools_help(name)` | Resolve a dotted name string (e.g. `"Polytope.triangulate"`) in the `run_python` namespace -> signature + docstring. API discovery without running code. |
+| `ks_stats(h11, h21=None)` | Exact polytope count at `(h11[, h21])` from a precomputed table over the full KS database (473M+). Check existence/counts before fetching. |
 | `fetch_polytopes(limit, h11, h21=None, favorable=None)` | Up to `limit` Kreuzer-Skarke polytope ids at the given Hodge numbers. `favorable=True/False` scans deeper until `limit` matches found. Cached. |
 | `get_polytope_info(ks_ind)` | One polytope's geometry: Hodge numbers, Euler char, N/M favorability, trilayer flag, automorphism order, point/vertex counts, `facedim_to_nfaces` (faces per dimension). |
-| `ks_stats(h11, h21=None)` | Exact polytope count at `(h11[, h21])` from a precomputed table over the full KS database (473M+). Check existence/counts before fetching. |
 | `get_heights(ks_ind, n=None, kind="NTFE", effort=0.5)` | Triangulations as `{"shape": [n_tri, n_pts], "heights": [...]}` (count = `shape[0]`). `n` set -> random sample of `n`; `n` omitted -> all inequivalent (`kind="NTFE"`) or all fine-regular-star (`kind="FRST"`). `effort` refuses too-large polytopes. |
 | `get_triangulation_info(ks_ind, heights)` | The triangulation from `heights`: fine/regular/star/valid flags, hash, simplex count. |
 | `get_cy_info(ks_ind, heights, t=None, cone="Kcup")` | CY invariants from a triangulation: Hodge numbers, Euler char, second Chern class, nonzero in-basis triple intersections, prime-toric-divisor count. `t` (a Kahler-cone point, or `"tip"`) adds divisor + CY volumes there (after membership check). |
 | `get_cy_cones(ks_ind, heights, cone="Kcup")` | Mori cone rays = dual Kahler cone hyperplane normals. `cone="Kcup"` accurate, `"toric"` cheaper at large h11. |
 | `run_python(code)` | Arbitrary Python in a persistent namespace (preloaded `cytools`, `numpy`, the tools, `get_polytope`/`get_cy`). Escape hatch; captures stdout, auto-saves figures. |
-| `cytools_help(name)` | Resolve a dotted name string (e.g. `"Polytope.triangulate"`) in the `run_python` namespace -> signature + docstring. API discovery without running code. |
-| `save_history(path)` | Session as a standalone runnable script: tool calls as code, agent text as comments. Auto-registered on every `Agent`. |
 
 ## Evaluation
 
