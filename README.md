@@ -64,11 +64,27 @@ objects.
 
 ## Evaluation
 
+`eval/corpus.jsonl` is the **corpus**: ~100 questions about specific polytopes
+/ CYs, each with a known answer and the standalone code that produces it (e.g.
+"how many NTFE triangulations does `h11-5_h21-20_ind-0` have?" -> `142`). It
+measures whether the agent, given only the question, reaches that answer with
+its tools. Each entry has an integer **id**.
+
 Run from the repo root (module form, since `eval/` is a package):
 
 ```sh
-python -m eval.eval qwen3:8b 30                       # sample 30 corpus questions
-python -m eval.eval qwen3:8b --ids 54,57,58 --reps 3  # targeted re-run
-python -m eval.agent_tests qwen3:8b 3                 # behavioral test suite
-python -m eval.corpus verify                          # check corpus integrity
+# run the agent on a random sample of 30 corpus questions; grade vs known answers
+python -m eval.eval qwen3:8b 30
+
+# re-run specific corpus ids 3x each (to gauge a fix, since a local model is
+# nondeterministic); reports pass/fail/timeout per id
+python -m eval.eval qwen3:8b --ids 54,57,58 --reps 3
+
+# behavioral suite: hand-written cases checking not just the answer but HOW the
+# agent worked -- did it call the right tools, avoid hallucinating, etc.
+python -m eval.agent_tests qwen3:8b 3
+
+# integrity check: re-execute each corpus entry's stored code and confirm it
+# still reproduces the stored answer
+python -m eval.corpus verify
 ```
