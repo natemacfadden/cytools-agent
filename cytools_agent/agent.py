@@ -23,6 +23,7 @@
 
 # external imports
 import ast
+import inspect
 import json
 import re
 import time
@@ -94,6 +95,10 @@ class Agent:
         self.messages = [{"role": "system", "content": system_prompt}]
         self.timing = {"model": 0.0, "tools": 0.0}
         self.tool_secs = {}
+        # auto-register save_history so the model can call it
+        self.tool_impls = dict(tool_impls)
+        self.tool_impls["save_history"] = self.save_history
+        self.tools = list(tools) + [self._save_history_schema()]
 
     def chat(self, user_message):
         """Run one turn through the tool loop and return the final answer."""
@@ -167,13 +172,29 @@ class Agent:
                                       "content": str(result)})
         return "(max_steps exceeded)"
 
-    def save_script(self, path: str) -> dict:
-        """
-        Write the session as a standalone Python script.
+    def _save_history_schema(self) -> dict:
+        doc = inspect.getdoc(self.save_history)
+        return {
+            "type": "function",
+            "function": {
+                "name": "save_history",
+                "description": doc or "",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                },
+            },
+        }
 
-        Tool calls become runnable function calls (with print so results are
-        visible); the agent's text messages become # comments (first 8 lines
-        each, to keep the script readable).
+    def save_history(self, path: str) -> dict:
+        """
+        Write the session as a standalone, runnable Python script.
+
+        The script replays every tool call (wrapped in print so results are
+        visible) and includes the agent's text as comments. Only call this
+        when the user has asked for it. ASK THE USER for the path -- do NOT
+        invent one.
         """
         header = [
             "# cytools-agent session script",

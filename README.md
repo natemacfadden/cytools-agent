@@ -17,7 +17,7 @@ Open `notebooks/demo.ipynb` with the **Python (cytools-agent)** kernel.
 
 ```python
 from openai import OpenAI
-from cytools_agent.tools import (polytope, triangulation, cy, code, history)
+from cytools_agent.tools import (polytope, triangulation, cy, code)
 from cytools_agent.schema import function_to_schema
 from cytools_agent.agent import Agent
 from cytools_agent.prompt import DEFAULT_SYSTEM_PROMPT
@@ -27,17 +27,16 @@ TOOL_FNS = [polytope.fetch_polytopes, polytope.get_polytope_info,
             polytope.ks_stats,
             triangulation.get_heights, triangulation.get_triangulation_info,
             cy.get_cy_info, cy.get_cy_cones,
-            code.run_python, code.cytools_help,
-            history.save_history]
+            code.run_python, code.cytools_help]
 tools = [function_to_schema(fn) for fn in TOOL_FNS]
 tool_impls = {fn.__name__: fn for fn in TOOL_FNS}
 
 agent = Agent(client, "qwen3:4b", DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
               max_steps=20, verbosity=2)
-agent.tool_impls["save_history"] = agent.save_script  # bind to this instance
+# save_history is auto-registered on Agent and available to the model
 
 print(agent.chat("Fetch 3 polytopes at h11=5 and compute CY volumes at the Kähler cone tip."))
-agent.save_script("session.py")  # export as a runnable script
+agent.save_history("session.py")  # or let the model call it
 ```
 
 `.chat()` is stateful — history accumulates across calls.
