@@ -33,7 +33,7 @@ TOOL_FNS = [polytope.fetch_polytopes, polytope.get_polytope_info,
 tools = [function_to_schema(fn) for fn in TOOL_FNS]
 tool_impls = {fn.__name__: fn for fn in TOOL_FNS}
 
-agent = Agent(client, "qwen3:4b", DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
+agent = Agent(client, "qwen3:8b", DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
               max_steps=20, verbosity=2)
 # save_history is auto-registered on Agent and available to the model
 
