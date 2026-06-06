@@ -55,16 +55,46 @@ _GLOSSARY = {
     "frst": (
         "Fine Regular Star Triangulation. Many more than NTFE.",
         "get_heights(ks, kind='FRST')     # count = result['shape'][0]",
-        ["fine regular star triangulation", "star triangulation"]),
+        ["fine regular star triangulation", "fine regular star"]),
+    "fine": (
+        "A triangulation is fine if it uses ALL points of the point "
+        "configuration (none left out). For a 4D reflexive polytope the "
+        "configuration is the lattice points NOT interior to a facet; in "
+        "general it is all lattice points.",
+        "get_triangulation_info(ks, h)['is_fine']",
+        ["fine triangulation"]),
+    "regular": (
+        "A triangulation is regular if it is induced by a height vector -- "
+        "equivalently, its secondary cone is solid (full-dimensional).",
+        "get_triangulation_info(ks, h)['is_regular']",
+        ["regular triangulation"]),
+    "star": (
+        "A triangulation is star if the origin is a vertex of every simplex "
+        "(required for the toric / CY construction). Any fine, regular "
+        "triangulation of a 4D reflexive polytope can be made star just by "
+        "lowering the height of the origin.",
+        "get_triangulation_info(ks, h)['is_star']",
+        ["star triangulation"]),
+    "secondary cone": (
+        "The cone of height vectors that induce a given triangulation -- the "
+        "'cone of strictly convex piecewise-linear functions'; the "
+        "triangulation is regular iff this cone is solid. The toric Kahler "
+        "cone is this cone with its lineality space projected out (the chamber "
+        "complex of the secondary fan).",
+        "get_polytope(ks).triangulate(heights=h, make_star=True)"
+        ".secondary_cone()",
+        ["secondary fan"]),
     "mori cone": (
         "Cone of effective curves of the CY; its generating rays (in basis).",
         "get_cy_cones(ks, h, cone='toric')['mori_rays']",
         ["mori cone rays", "effective curve cone", "cone of effective curves",
          "mori generators", "toric mori cone"]),
     "kahler cone": (
-        "Dual of the Mori cone. The Mori cone's rays ARE the bounding "
-        "hyperplane normals (facet normals) of the Kahler cone, so the number "
-        "of hyperplanes bounding it = the number of those vectors.",
+        "Dual of the Mori cone; the Mori cone's rays ARE its bounding "
+        "hyperplane normals (facet normals), so #hyperplanes = #those "
+        "vectors. Equivalently, the toric Kahler cone is the secondary cone "
+        "with its lineality space projected out (the chamber complex of the "
+        "secondary fan).",
         "len(get_cy_cones(ks, h, cone='toric')['kahler_cone_hyperplanes'])",
         ["kaehler cone", "kahler cone hyperplanes", "facet normals",
          "hyperplanes bounding the kahler cone", "kahler cone facet normals"]),
@@ -161,6 +191,36 @@ _GLOSSARY = {
         "The 2-dimensional reflexive sub-polytopes contained in the polytope.",
         "get_polytope(ks).find_2d_reflexive_subpolytopes()",
         ["2d reflexive subpolys", "2-dimensional reflexive subpolytopes"]),
+    "d3 tadpole charge": (
+        "D3 tadpole charge of the CY: Q0 = (2 + h11 + h21) / 2.",
+        "info = get_polytope_info(ks); (2 + info['h11'] + info['h21']) / 2",
+        ["tadpole", "tadpole charge", "q0"]),
+    "dual polytope": (
+        "The dual (polar) polytope, get_polytope(ks).dual(). Mirror symmetry "
+        "relates a CY to the CY of its dual polytope and swaps h11 <-> h21 -- "
+        "it is a relation between the two polytopes, not a property of one. So "
+        "the dual polytope's h11 equals this CY's h21.",
+        "get_polytope(ks).dual()   # dual/polar polytope; its "
+        ".h11(lattice='N') is the mirror h11 (= this CY's h21)",
+        ["polar polytope", "polar dual", "mirror", "mirror symmetry",
+         "mirror h11"]),
+    "rigid divisors": (
+        "Rigid prime toric divisors: a prime toric divisor (a lattice point "
+        "interior to a face of dim 0-2) is rigid iff its dual face has no "
+        "interior points.",
+        "p = get_polytope(ks); len([pt for d in (0, 1, 2) for f in p.faces(d) "
+        "for pt in f.interior_points(as_indices=True) "
+        "if len(f.dual_face().interior_points()) == 0])",
+        ["rigid prime toric divisors", "rigid divisor", "rigid toric divisor"]),
+    "induced 2-face triangulation": (
+        "The triangulation a star triangulation induces on each 2-face -- "
+        "i.e. its restriction to the 2-faces, one per 2-face.",
+        "t = get_polytope(ks).triangulate(heights=h, make_star=True); "
+        "faces = t.restrict(restrict_dim=2)   # induced triangulation per "
+        "2-face. Per-face counts: [len(f) for f in faces]; total: "
+        "sum(len(f) for f in faces)",
+        ["induced 2-face triangulations", "2-face triangulation",
+         "induced triangulations", "induced triangulations of 2-faces"]),
 }
 
 
@@ -199,7 +259,9 @@ def cy_glossary(term: str = "") -> dict:
     if not term:
         return {"terms": sorted(_GLOSSARY)}
     t = _norm(term)
-    cands = [(p, k) for p, k in _PHRASES if p in t or t in p]
+    cands = [(p, k) for p, k in _PHRASES if p in t]       # query names the term
+    if not cands:
+        cands = [(p, k) for p, k in _PHRASES if t in p]   # query is a fragment
     if not cands:
         tw = set(t.split())
         cands = [(p, k) for p, k in _PHRASES if set(p.split()) <= tw]
@@ -222,7 +284,7 @@ cy_glossary.__doc__ += (
 # Terms whose words show up as selectors/specs, not as the asked-for quantity
 # ("first FAVORABLE polytope", "interior to FACETS"), so auto-scanning them is
 # mostly noise. They stay available via the cy_glossary tool + vocabulary list.
-_SCAN_SKIP = {"favorable", "facet"}
+_SCAN_SKIP = {"favorable", "facet", "fine", "regular", "star"}
 
 
 # human-read
