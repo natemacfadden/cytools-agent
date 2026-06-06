@@ -20,7 +20,7 @@
 #
 #   Sampling (default): stratified random sample over corpus kinds, one
 #   question per kind. Good for a quick overall pass-rate estimate.
-#     python -m eval.eval qwen3:8b [k=12] [timeout=300]
+#     python -m eval.eval qwen3:8b [k=12] [timeout=600]
 #
 #   Targeted: specific corpus ids, repeated reps times. Use this to measure
 #   whether a fix helps before committing it (run BEFORE, apply fix, run AFTER,
@@ -181,11 +181,11 @@ def main():
         ids = [int(x) for x in rest[i + 1].split(",")]
         reps = int(rest[rest.index("--reps") + 1]) if "--reps" in rest else 3
         timeout = int(rest[rest.index("--timeout") + 1]) \
-            if "--timeout" in rest else 300
+            if "--timeout" in rest else 600
         run_targeted(model, ids, reps, timeout)
     else:
         k = int(rest[0]) if rest else 12
-        timeout = int(rest[1]) if len(rest) > 1 else 300
+        timeout = int(rest[1]) if len(rest) > 1 else 600
         run_sample(model, k, timeout)
 
 

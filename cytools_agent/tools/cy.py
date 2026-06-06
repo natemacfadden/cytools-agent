@@ -76,11 +76,13 @@ def get_cy_info(ks_ind: str, heights: list[float],
         The id of a fetched polytope, of the form "h11-X_h21-Y_ind-Z".
     heights : list[float]
         Heights selecting the triangulation (a get_heights(...)["heights"][i]).
+        Pass a whole list of height vectors to get one result per triangulation.
     t : list[float] or "tip", optional
-        Omit for invariants only. Pass "tip" to also evaluate volumes at the
-        tip of the stretched Kahler cone (a canonical interior point), or a
-        length-h11 vector for a specific point. Do NOT hardcode an arbitrary
-        point like [1, 0, ...] - it almost never lies in the cone.
+        Leave unset to return only the invariants (see Returns); pass a point
+        to also get the divisor/CY volumes there. If the user gave a specific
+        point, use it (a length-h11 vector); otherwise pass "tip" for a
+        canonical interior point (the stretched-cone tip). Do not invent an
+        arbitrary point -- it is usually outside the cone.
     cone : str, optional
         Which Kahler cone the point uses: "Kcup" (more accurate, the default)
         or "toric" (cheaper, much faster at large h11).
@@ -91,8 +93,10 @@ def get_cy_info(ks_ind: str, heights: list[float],
         h11, h21, euler_characteristic, second_chern_class,
         intersection_numbers (nonzero, in-basis, as [i, j, k, value]), and
         n_prime_toric_divisors; plus, if t is given, cone, t, divisor_volumes,
-        and cy_volume.
+        and cy_volume. A list of these if multiple height vectors were passed.
     """
+    if heights and isinstance(heights[0], (list, tuple)):
+        return [get_cy_info(ks_ind, h, t, cone) for h in heights]
     cy = get_cy(ks_ind, heights)
     dok = cy.intersection_numbers(in_basis=True, format="dok")
     info = {
@@ -114,7 +118,10 @@ def get_cy_info(ks_ind: str, heights: list[float],
             raise ValueError("could not find a stretched-cone tip; pass t")
     t = np.asarray(t, dtype=float)
     if not K.contains(t):
-        raise ValueError(f"point t is not in the {cone} Kahler cone")
+        raise ValueError(
+            f"point t is not in the {cone} Kahler cone; omit t (or pass "
+            "t='tip') to use the stretched-cone tip."
+        )
 
     kappa = cy.intersection_numbers(in_basis=True, format="dense")
     ktt = np.tensordot(kappa, t, axes=([2], [0])) @ t   # kappa @ t @ t
@@ -141,6 +148,7 @@ def get_cy_cones(ks_ind: str, heights: list[float],
         The id of a fetched polytope, of the form "h11-X_h21-Y_ind-Z".
     heights : list[float]
         Heights selecting the triangulation (a get_heights(...)["heights"][i]).
+        Pass a whole list of height vectors to get one result per triangulation.
     cone : str, optional
         Which Mori cone: "Kcup" (the capped/accurate one, the default) or
         "toric" (the toric Mori cone, as in the tutorial). Kcup gets very
@@ -150,7 +158,10 @@ def get_cy_cones(ks_ind: str, heights: list[float],
     -------
     dict
         cone (which cone was used) and mori_rays (its generating rays, which
-        are also the dual Kahler cone's hyperplane normals).
+        are also the dual Kahler cone's hyperplane normals). A list of these
+        if multiple height vectors were passed.
     """
+    if heights and isinstance(heights[0], (list, tuple)):
+        return [get_cy_cones(ks_ind, h, cone) for h in heights]
     mori = _mori_cone(get_cy(ks_ind, heights), cone)
     return {"cone": cone, "mori_rays": mori.rays().tolist()}

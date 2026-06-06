@@ -46,7 +46,10 @@ _KS_H11 = {int(k): v for k, v in _KS["by_h11"].items()}
 
 # model-read (exposed in the run_python namespace)
 def get_polytope(ks_ind: str) -> cytools.Polytope:
-    """Reconstruct the cached Polytope associated with a ks_ind."""
+    """Reconstruct the Polytope for a ks_ind, fetching it on demand if the id
+    is well-formed but not yet cached."""
+    if ks_ind not in _CACHE:
+        _autofetch(ks_ind)
     return cytools.Polytope(_CACHE[ks_ind])
 
 # human-read
@@ -115,6 +118,24 @@ def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
         "count": max(n, prev["count"] if prev else 0),
         "complete": bool(prev and prev["complete"]) or (n < limit),
     }
+
+# human-read
+def _autofetch(ks_ind: str) -> None:
+    """Fetch a well-formed but uncached id on demand, so the model can refer to
+    a polytope by id without a prior explicit fetch."""
+    try:
+        h11, h21, ind = (int(p.split("-")[1]) for p in ks_ind.split("_"))
+    except (ValueError, IndexError):
+        raise KeyError(
+            f"{ks_ind!r} is not a valid polytope id "
+            "(expected 'h11-X_h21-Y_ind-Z')"
+        )
+    _ensure_cached(h11, h21, ind + 1)
+    if ks_ind not in _CACHE:
+        raise KeyError(
+            f"{ks_ind!r} not found: there are fewer than {ind + 1} polytopes "
+            f"at h11={h11}, h21={h21}"
+        )
 
 # model-read
 def fetch_polytopes(limit: int, h11: int, h21: int | None = None,

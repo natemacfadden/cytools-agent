@@ -47,7 +47,5 @@ DEFAULT_SYSTEM_PROMPT = (
     "get_polytope(ks) / get_cy(ks, heights); e.g. 2-face genera = "
     "[len(f.interior_points()) for f in get_polytope(ks).dual().faces(1)]. "
     "Call one tool at a time and wait for its result. "
-    "Reuse earlier results; never re-call a tool with the same arguments. "
-    "Only pass ks_ind values that fetch_polytopes actually returned -- never "
-    "placeholders."
+    "Reuse earlier results; never re-call a tool with the same arguments."
 )

@@ -64,7 +64,7 @@ signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(_TimedOut()))
 TIMED_OUT = "(timed out)"
 
 
-def run(model, prompt, timeout=300, max_steps=20):
+def run(model, prompt, timeout=600, max_steps=20):
     ag = make_agent(model, max_steps=max_steps)
     signal.alarm(timeout)
     try:

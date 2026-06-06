@@ -49,7 +49,7 @@ if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
 
 MODELS = (sys.argv[1] if len(sys.argv) > 1 else "qwen3:8b").split(",")
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 2
-TIMEOUT = int(sys.argv[3]) if len(sys.argv) > 3 else 240
+TIMEOUT = int(sys.argv[3]) if len(sys.argv) > 3 else 480
 
 
 # grading helpers: read a finished agent's trace

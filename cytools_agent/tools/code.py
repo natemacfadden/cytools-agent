@@ -27,6 +27,7 @@ import contextlib
 import inspect
 import io
 import os
+import sys
 import traceback
 
 import numpy as np
@@ -57,6 +58,18 @@ _NS = {
     "get_cy_info": cy.get_cy_info,
     "get_cy_cones": cy.get_cy_cones,
 }
+# Adapt to the model's instinct: small models often write `import get_cy_info`
+# even though the tools are preloaded. Registering each preloaded callable in
+# sys.modules under its own name makes `import get_cy_info` bind to the function
+# (and be callable), so we enable the behavior instead of erroring on it. We
+# skip names already in sys.modules, so real modules (e.g. cytools) are never
+# shadowed.
+for _name, _obj in _NS.items():
+    if _name not in sys.modules:
+        sys.modules[_name] = _obj
+
+_PRELOADED = list(_NS)   # tool names, captured before run_python adds vars
+
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
 _FIG_DIR = "scratch"
 _fig_count = 0
@@ -146,8 +159,13 @@ def run_python(code: str) -> str:
             out = ("(no output -- nothing was printed." + hint
                    + " print() the value you need; do not report values you "
                    "did not see.)")
-    except Exception:
+    except Exception as e:
         out = buf.getvalue() + "\n" + traceback.format_exc()
+        if isinstance(e, (ImportError, NameError)):
+            # the tools are preloaded, not importable modules: a model that
+            # writes `import get_cy_info` hits this -- tell it they exist
+            out += ("\n[these tools are already available here -- call them "
+                    "directly: " + ", ".join(_PRELOADED) + "]")
     out += _save_open_figures()  # persist any plots so they can be viewed
     if len(out) > _MAX_OUTPUT:
         out = "...(truncated)...\n" + out[-_MAX_OUTPUT:]

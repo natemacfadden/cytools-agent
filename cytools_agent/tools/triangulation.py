@@ -138,12 +138,16 @@ def get_triangulation_info(ks_ind: str, heights: list[float]) -> dict:
         The id of the polytope, of the form "h11-X_h21-Y_ind-Z".
     heights : list[float]
         The list of heights, with length equal to n_points_interior_to_facets.
+        Pass a whole list of height vectors to get one result per triangulation.
 
     Returns
     -------
     dict
-        is_valid, is_fine, is_regular, is_star, hash, n_simplices
+        is_valid, is_fine, is_regular, is_star, hash, n_simplices. A list of
+        these if multiple height vectors were passed.
     """
+    if heights and isinstance(heights[0], (list, tuple)):
+        return [get_triangulation_info(ks_ind, h) for h in heights]
     p = get_polytope(ks_ind)
     t = p.triangulate(heights=heights, make_star=True)
 
