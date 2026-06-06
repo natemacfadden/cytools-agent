@@ -28,6 +28,7 @@ dependencies:
     - regfans
     - latticepts
     - cytools
+    - mcp        # MCP server (mcp_server.py) exposing the tools to MCP clients
   # Agent / loop dependencies
   - openai
   - anthropic

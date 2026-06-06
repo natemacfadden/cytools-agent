@@ -30,28 +30,26 @@ import signal
 from openai import OpenAI
 
 # local imports
-from cytools_agent.tools import polytope, triangulation, cy, code
+from cytools_agent.tools import MODEL_TOOLS
+from cytools_agent.tools.glossary import glossary_context
 from cytools_agent.schema import function_to_schema
 from cytools_agent.agent import Agent
 from cytools_agent.prompt import DEFAULT_SYSTEM_PROMPT
+from eval.grading import TIMED_OUT
 
 base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 client = OpenAI(base_url=base + "/v1", api_key="ollama")
 
-# tool set (single source of truth; save_history is auto-registered by Agent)
-TOOL_FNS = [
-    polytope.fetch_polytopes, polytope.get_polytope_info, polytope.ks_stats,
-    triangulation.get_heights, triangulation.get_triangulation_info,
-    cy.get_cy_info, cy.get_cy_cones,
-    code.run_python, code.cytools_help,
-]
+# same tool set as the MCP server (save_history is auto-registered by Agent)
+TOOL_FNS = MODEL_TOOLS
 tools = [function_to_schema(fn) for fn in TOOL_FNS]
 tool_impls = {fn.__name__: fn for fn in TOOL_FNS}
 
 
 def make_agent(model, max_steps=20, verbosity=0):
     return Agent(client, model, DEFAULT_SYSTEM_PROMPT, tools, tool_impls,
-                 max_steps=max_steps, verbosity=verbosity)
+                 max_steps=max_steps, verbosity=verbosity,
+                 message_hook=glossary_context)
 
 
 # timeout (BaseException so the agent's `except Exception` can't swallow it)
@@ -60,8 +58,6 @@ class _TimedOut(BaseException):
 
 
 signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(_TimedOut()))
-
-TIMED_OUT = "(timed out)"
 
 
 def run(model, prompt, timeout=600, max_steps=20):

@@ -86,14 +86,17 @@ class Agent:
     """
     Stateful conversation over a tool-calling model. .chat(text) runs the
     tool loop and returns the final answer; history accumulates across calls.
-    verbosity: 0 silent, 1 tags, >=2 full payloads.
+    verbosity: 0 silent, 1 tags, >=2 full payloads. message_hook, if given, is
+    called on each user message and its (string) return is appended to it --
+    used to auto-inject glossary context so the model needn't ask for it.
     """
     def __init__(self, client, model, system_prompt, tools, tool_impls,
-                 max_steps=20, verbosity=0):
+                 max_steps=20, verbosity=0, message_hook=None):
         self.client = client
         self.model = model
         self.max_steps = max_steps
         self.verbosity = verbosity
+        self.message_hook = message_hook
         self.messages = [{"role": "system", "content": system_prompt}]
         self.timing = {"model": 0.0, "tools": 0.0}
         self.tool_secs = {}
@@ -104,6 +107,10 @@ class Agent:
 
     def chat(self, user_message):
         """Run one turn through the tool loop and return the final answer."""
+        if self.message_hook:
+            extra = self.message_hook(user_message)
+            if extra:
+                user_message = f"{user_message}\n\n{extra}"
         self.messages.append({"role": "user", "content": user_message})
         for step in range(self.max_steps):
             _t = time.monotonic()

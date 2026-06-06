@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "cytools": {
+      "type": "stdio",
+      "command": "conda",
+      "args": ["run", "--no-capture-output", "-n", "cytools-agent",
+               "python", "mcp_server.py"]
+    }
+  }
+}

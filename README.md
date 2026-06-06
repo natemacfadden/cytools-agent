@@ -94,9 +94,46 @@ objects.
 | `get_polytope_info(ks_ind)` | One polytope's geometry: Hodge numbers, Euler char, N/M favorability, trilayer flag, automorphism order, point/vertex counts, `facedim_to_nfaces` (faces per dimension). |
 | `get_heights(ks_ind, n=None, kind="NTFE", effort=0.5)` | Triangulations as `{"shape": [n_tri, n_pts], "heights": [...]}` (count = `shape[0]`). `n` set -> random sample of `n`; `n` omitted -> all inequivalent (`kind="NTFE"`) or all fine-regular-star (`kind="FRST"`). `effort` refuses too-large polytopes. |
 | `get_triangulation_info(ks_ind, heights)` | The triangulation from `heights`: fine/regular/star/valid flags, hash, simplex count. |
-| `get_cy_info(ks_ind, heights, t=None, cone="Kcup")` | CY invariants from a triangulation: Hodge numbers, Euler char, second Chern class, nonzero in-basis triple intersections, prime-toric-divisor count. `t` (a Kahler-cone point, or `"tip"`) adds divisor + CY volumes there (after membership check). |
+| `get_cy_info(ks_ind, heights, t=None, cone="Kcup")` | CY invariants from a triangulation: Hodge numbers, Euler char, second Chern class, nonzero in-basis triple intersections, prime-toric-divisor count. `t` (a Kahler-cone point, or `"tip"`) adds divisor volumes, CY volume, and curve volumes (+ `min_curve_volume`) there (after a cone-membership check). Pass a list of heights -> a list of results. |
 | `get_cy_cones(ks_ind, heights, cone="Kcup")` | Mori cone rays = dual Kahler cone hyperplane normals. `cone="Kcup"` accurate, `"toric"` cheaper at large h11. |
 | `run_python(code)` | Arbitrary Python in a persistent namespace (preloaded `cytools`, `numpy`, the tools, `get_polytope`/`get_cy`). Escape hatch; captures stdout, auto-saves figures. |
+
+## Use from Claude Code (MCP)
+
+`mcp_server.py` exposes the same tools over MCP, so any MCP client (e.g. Claude
+Code) can drive CYTools directly. It registers the same `MODEL_TOOLS` the
+in-house agent uses, so the names, docstrings, and parameter schemas are
+identical -- the tools behave the same whichever loop calls them. (`run_python`
+is included; `save_history` is not -- the MCP client manages its own session.)
+
+**Recommended: register once, use everywhere.** After `./setup.sh`, run this a
+single time (the `cd` is only so `"$(pwd)"` resolves to the absolute path):
+
+```sh
+cd /path/to/cytools-agent
+claude mcp add --scope user cytools -- \
+  conda run --no-capture-output -n cytools-agent python "$(pwd)/mcp_server.py"
+```
+
+That writes a user-scope entry to `~/.claude.json`, so `cytools` and its 9 tools
+are available in **every** Claude Code session, from any directory -- no `cd`,
+no per-repo file. Then just ask in plain language ("fetch 3 favorable polytopes
+at h11=5 and give their CY volumes") and Claude calls the tools. Verify with
+`/mcp`.
+
+`conda run -n cytools-agent` runs the server inside the env without activating
+it (needs only `conda` on PATH + the env to exist); `--no-capture-output` is
+required so `conda` doesn't buffer stdout, which is the stdio protocol channel.
+
+**Alternative: per-repo.** The committed `.mcp.json` registers the same server
+at project scope -- launch Claude Code from inside the repo and approve it on
+first open. Shareable via git and survives repo moves (relative path), but only
+active when the repo is your working directory.
+
+**Updating:** the package is an editable install, so `git pull` needs no
+reinstall -- just restart/reconnect the server (`/mcp`) to load new code. Run
+`conda env update -f environment.yml` only when dependencies change; re-run the
+`claude mcp add` above only if you move the repo.
 
 ## Evaluation
 

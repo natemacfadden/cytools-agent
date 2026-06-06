@@ -68,7 +68,8 @@ def get_cy_info(ks_ind: str, heights: list[float],
     Hodge numbers, Euler characteristic, second Chern class, the nonzero
     in-basis triple intersection numbers, and the number of prime toric
     divisors. If `t` is given, ALSO checks `t` is in the Kahler cone and adds
-    the divisor volumes (0.5*kappa@t@t) and CY volume (kappa@t@t@t / 6) there.
+    the divisor volumes (0.5*kappa@t@t), CY volume (kappa@t@t@t / 6), and curve
+    volumes (Mori-cone ray . t) there.
 
     Parameters
     ----------
@@ -93,7 +94,8 @@ def get_cy_info(ks_ind: str, heights: list[float],
         h11, h21, euler_characteristic, second_chern_class,
         intersection_numbers (nonzero, in-basis, as [i, j, k, value]), and
         n_prime_toric_divisors; plus, if t is given, cone, t, divisor_volumes,
-        and cy_volume. A list of these if multiple height vectors were passed.
+        cy_volume, curve_volumes, and min_curve_volume. A list of these if
+        multiple height vectors were passed.
     """
     if heights and isinstance(heights[0], (list, tuple)):
         return [get_cy_info(ks_ind, h, t, cone) for h in heights]
@@ -111,7 +113,8 @@ def get_cy_info(ks_ind: str, heights: list[float],
     if t is None:
         return info
 
-    K = _mori_cone(cy, cone).dual()
+    mori = _mori_cone(cy, cone)
+    K = mori.dual()
     if t == "tip":
         t = K.tip_of_stretched_cone(1)   # canonical interior point
         if t is None:
@@ -125,10 +128,13 @@ def get_cy_info(ks_ind: str, heights: list[float],
 
     kappa = cy.intersection_numbers(in_basis=True, format="dense")
     ktt = np.tensordot(kappa, t, axes=([2], [0])) @ t   # kappa @ t @ t
+    curve_vols = np.asarray(mori.rays()) @ t   # Mori-ray . t = curve volumes
     info["cone"] = cone
     info["t"] = t.tolist()
     info["divisor_volumes"] = (0.5 * ktt).tolist()
     info["cy_volume"] = float(ktt @ t / 6)
+    info["curve_volumes"] = curve_vols.tolist()
+    info["min_curve_volume"] = float(curve_vols.min())
     return info
 
 
@@ -136,11 +142,12 @@ def get_cy_info(ks_ind: str, heights: list[float],
 def get_cy_cones(ks_ind: str, heights: list[float],
                  cone: str = "Kcup") -> dict:
     """
-    The Mori cone rays of the CY, in the basis of divisors.
-
-    These rays generate the Mori (effective-curve) cone and are exactly the
-    hyperplane normals of the dual Kahler cone, so this one array describes
-    both cones (Kahler cone = {t : ray . t >= 0 for every ray}).
+    The cone data of the CY, in the basis of divisors. The same vectors play
+    two dual roles, so they are returned under BOTH labels: as the generating
+    RAYS of the Mori (effective-curve) cone, and as the HYPERPLANE normals
+    bounding the dual Kahler cone (Kahler cone = {t : ray . t >= 0 for every
+    ray}). So the number of hyperplanes bounding the Kahler cone is the length
+    of either array.
 
     Parameters
     ----------
@@ -150,18 +157,20 @@ def get_cy_cones(ks_ind: str, heights: list[float],
         Heights selecting the triangulation (a get_heights(...)["heights"][i]).
         Pass a whole list of height vectors to get one result per triangulation.
     cone : str, optional
-        Which Mori cone: "Kcup" (the capped/accurate one, the default) or
-        "toric" (the toric Mori cone, as in the tutorial). Kcup gets very
-        expensive at large h11 (huge ray count) -- use "toric" there.
+        Which Mori cone: "Kcup" (Mcap = mori_cone_cap; its dual is the more
+        accurate Kahler cone, the default) or "toric" (the toric Mori cone, as
+        in the tutorial). Kcup gets expensive at large h11 -- use "toric" there.
 
     Returns
     -------
     dict
-        cone (which cone was used) and mori_rays (its generating rays, which
-        are also the dual Kahler cone's hyperplane normals). A list of these
-        if multiple height vectors were passed.
+        cone (which cone was used), mori_rays (the Mori cone's generating
+        rays), and kahler_cone_hyperplanes (the SAME vectors, as the dual
+        Kahler cone's bounding hyperplane normals). A list of these if multiple
+        height vectors were passed.
     """
     if heights and isinstance(heights[0], (list, tuple)):
         return [get_cy_cones(ks_ind, h, cone) for h in heights]
     mori = _mori_cone(get_cy(ks_ind, heights), cone)
-    return {"cone": cone, "mori_rays": mori.rays().tolist()}
+    rays = mori.rays().tolist()
+    return {"cone": cone, "mori_rays": rays, "kahler_cone_hyperplanes": rays}
