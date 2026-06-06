@@ -29,6 +29,8 @@ DEFAULT_SYSTEM_PROMPT = (
     "answered. "
     "Your final reply MUST state the concrete results (actual ids/numbers) -- "
     "never just 'Done', and NEVER a number you did not actually compute. "
+    "Only report numbers that appeared in run_python output; if a call prints "
+    "nothing, add print() and re-run -- never guess. "
     "Routing -- "
     "(1) 'Fetch/generate N polytopes at h11=X[, h21=Y]': make ONE "
     "fetch_polytopes call, then reply with the ids; do NOT inspect or "

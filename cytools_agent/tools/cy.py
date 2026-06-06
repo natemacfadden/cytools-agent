@@ -35,8 +35,8 @@ def get_cy(ks_ind: str, heights: list[float]):
     poly = get_polytope(ks_ind)
     if not poly.is_favorable(lattice="N"):
         raise ValueError(
-            f"{ks_ind} is non-favorable; its CY needs experimental "
-            "CYTools features, so skip it"
+            f"{ks_ind} is non-favorable, so its CY is unsupported here. "
+            "Fetch a favorable one: fetch_polytopes(..., favorable=True)."
         )
     # make_star: get_heights gives FRST heights, but triangulate won't
     # force the star unless asked, and get_cy needs a star triangulation

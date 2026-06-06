@@ -114,8 +114,9 @@ def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
         difficulty = min(1.0, difficulty + 0.4)   # FRSTs blow up much faster
     if difficulty > effort:
         raise ValueError(
-            f"enumerating {kind} of {ks_ind} is difficulty {difficulty} but "
-            f"effort {effort}. Too hard ('{msg}'); use a smaller polytope."
+            f"enumerating ALL {kind} of {ks_ind} is difficulty {difficulty} "
+            f"but effort {effort} ('{msg}'). For a large polytope, sample "
+            f"triangulations instead: call get_heights({ks_ind!r}, n=<count>)."
         )
 
     if kind == "NTFE":

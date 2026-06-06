@@ -43,6 +43,36 @@ agent.save_history("session.py")  # or let the model call it
 
 `.chat()` is stateful -- history accumulates across calls.
 
+## Demo
+
+About the most complex thing `qwen3:8b` will carry to completion -- a single
+prompt chaining a database fetch, a 10-polytope loop, exhaustive triangulation,
+simplex counting, and a plot:
+
+```python
+agent.chat("For the first 10 polytopes at h11=6, how many NTFEs do each have? "
+           "Plot me a distribution of simplex counts.")
+```
+
+On a good run the model fetches the ids, then writes one `run_python` block that
+loops over them, enumerates each polytope's NTFE triangulations, counts
+simplices, and saves a histogram:
+
+```
+The first 10 polytopes at h11=6 have NTFE counts [1, 3, 6, 1, 2, 2, 4, 4, 2, 4].
+A histogram of the simplex counts is saved as fig_1.png.
+```
+
+(`[1, 3, 6, 1, 2, 2, 4, 4, 2, 4]` is exactly correct.) This sits near the
+model's ceiling, but lands a clean run most of the time it doesn't time out
+(~3 in 5 measured). Earlier it was far worse: the model would write correct
+`run_python` code, forget to `print()` the result, get `(no output)`, and then
+fabricate counts -- so `run_python` now echoes a trailing bare expression and,
+when nothing is printed, names the variables the code assigned, and the system
+prompt forbids reporting unprinted values. Smaller, focused prompts (single
+fetch, one CY invariant, one aggregation) are reliable. See
+`eval/agent_tests.py` for the full set of end-to-end cases.
+
 ## Tools
 
 Polytopes are referenced by canonical string id (`h11-X_h21-Y_ind-Z`);

@@ -22,6 +22,7 @@
 # -----------------------------------------------------------------------------
 
 # external imports
+import ast
 import contextlib
 import inspect
 import io
@@ -59,6 +60,19 @@ _NS = {
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
 _FIG_DIR = "scratch"
 _fig_count = 0
+
+
+# human-read
+def _assigned_names(tree):
+    """Top-level variable names the code assigns (for the no-output hint)."""
+    names = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names += [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif (isinstance(node, (ast.AnnAssign, ast.AugAssign))
+              and isinstance(node.target, ast.Name)):
+            names.append(node.target.id)
+    return names
 
 
 # human-read
@@ -108,9 +122,30 @@ def run_python(code: str) -> str:
     """
     buf = io.StringIO()
     try:
+        tree = ast.parse(code)
+        last = tree.body[-1] if tree.body else None
         with contextlib.redirect_stdout(buf):
-            exec(code, _NS)
-        out = buf.getvalue() or "(no output)"
+            if isinstance(last, ast.Expr):
+                # run all but the last statement, then echo the last
+                # expression's value (Jupyter-style), so a bare expression is
+                # not silently discarded
+                exec(compile(ast.Module(tree.body[:-1], []), "<run_python>",
+                             "exec"), _NS)
+                val = eval(compile(ast.Expression(last.value), "<run_python>",
+                                   "eval"), _NS)
+                if val is not None:
+                    print(repr(val))
+            else:
+                exec(code, _NS)
+        out = buf.getvalue()
+        if not out:
+            # nothing printed: name the variables the code assigned so the
+            # model prints one instead of fabricating an answer
+            names = _assigned_names(tree)
+            hint = f" You assigned: {', '.join(names)}." if names else ""
+            out = ("(no output -- nothing was printed." + hint
+                   + " print() the value you need; do not report values you "
+                   "did not see.)")
     except Exception:
         out = buf.getvalue() + "\n" + traceback.format_exc()
     out += _save_open_figures()  # persist any plots so they can be viewed
