@@ -33,11 +33,11 @@ import re
 _GLOSSARY = {
     "2-face genus": (
         "Genus of a 2-face = number of interior lattice points of the DUAL "
-        "1-face (edge). One value per 2-face; questions often want the max.",
-        "genera = [len(f.interior_points()) "
-        "for f in get_polytope(ks).dual().faces(1)]; max(genera)",
+        "1-face (edge). One value per 2-face; questions often want the max or "
+        "the sum (total genus).",
+        "get_polytope_info(ks)['genera_2face']   # sorted desc; take max/sum",
         ["genus", "2-face genera", "face genus", "genus of a 2-face",
-         "genera of the 2-faces"]),
+         "genera of the 2-faces", "total genus", "sum of 2-face genera"]),
     "favorable": (
         "Favorable (lattice N or M): all Kahler (1,1)-forms of the CY "
         "hypersurface descend from the ambient toric variety. The standard CY "
@@ -207,10 +207,8 @@ _GLOSSARY = {
     "rigid divisors": (
         "Rigid prime toric divisors: a prime toric divisor (a lattice point "
         "interior to a face of dim 0-2) is rigid iff its dual face has no "
-        "interior points.",
-        "p = get_polytope(ks); len([pt for d in (0, 1, 2) for f in p.faces(d) "
-        "for pt in f.interior_points(as_indices=True) "
-        "if len(f.dual_face().interior_points()) == 0])",
+        "interior points. NOT the same as the prime-divisor count.",
+        "get_polytope_info(ks)['n_rigid_divisors']",
         ["rigid prime toric divisors", "rigid divisor", "rigid toric divisor"]),
     "induced 2-face triangulation": (
         "The triangulation a star triangulation induces on each 2-face -- "
@@ -220,7 +218,9 @@ _GLOSSARY = {
         "2-face. Per-face counts: [len(f) for f in faces]; total: "
         "sum(len(f) for f in faces)",
         ["induced 2-face triangulations", "2-face triangulation",
-         "induced triangulations", "induced triangulations of 2-faces"]),
+         "induced triangulations", "induced triangulations of 2-faces",
+         "simplices induced on each 2-face", "induced on each 2-face",
+         "simplices per 2-face", "triangulation of each 2-face"]),
 }
 
 

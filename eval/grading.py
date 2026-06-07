@@ -42,6 +42,11 @@ def _flat(x):
     return [x]
 
 
+def _nums(text):
+    """Every number in the text, in order, rounded to 3 dp for comparison."""
+    return [round(float(x), 3) for x in re.findall(r"-?\d+(?:\.\d+)?", text)]
+
+
 def _claimed_ints(text):
     """Integers the answer explicitly states: leading number in a bold span,
     or after an 'answer/total/count' marker. Avoids crediting echoed digits."""
@@ -70,10 +75,16 @@ def hit(text, ans):
     if isinstance(ans, float):
         return any(f"{round(ans, d)}" in text for d in (1, 2, 3, 4, 6))
     if isinstance(ans, (list, tuple)):
+        # exact list literal present (handles ordered / nested forms)
         if re.sub(r"\s", "", str(ans)) in re.sub(r"\s", "", text):
             return True
-        return all((f"{round(e, 3)}" in text if isinstance(e, float)
-                    else str(e) in re.sub(r",", "", text)) for e in _flat(ans))
+        # else demand a CONTIGUOUS run of numbers whose multiset matches the
+        # whole answer -- so e.g. "12 simplices" can't satisfy a [1,...,2,...]
+        # truth just because the digits 1 and 2 appear somewhere
+        target = sorted(round(float(e), 3) for e in _flat(ans))
+        nums, w = _nums(text), len(target)
+        return any(sorted(nums[i:i + w]) == target
+                   for i in range(len(nums) - w + 1))
     return str(ans).lower() in t
 
 

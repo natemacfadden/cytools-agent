@@ -45,9 +45,12 @@ _KS_PAIR = {tuple(int(x) for x in k.split(",")): v
 _KS_H11 = {int(k): v for k, v in _KS["by_h11"].items()}
 
 # model-read (exposed in the run_python namespace)
-def get_polytope(ks_ind: str) -> cytools.Polytope:
+def get_polytope(ks_ind: str | cytools.Polytope) -> cytools.Polytope:
     """Reconstruct the Polytope for a ks_ind, fetching it on demand if the id
-    is well-formed but not yet cached."""
+    is well-formed but not yet cached. An already-built Polytope passes
+    through, so tools accept either an id or a Polytope."""
+    if isinstance(ks_ind, cytools.Polytope):
+        return ks_ind
     if ks_ind not in _CACHE:
         _autofetch(ks_ind)
     return cytools.Polytope(_CACHE[ks_ind])
@@ -197,9 +200,11 @@ def get_polytope_info(ks_ind: str) -> dict:
     dict
         h11, h21, euler_characteristic (= 2*(h11-h21)), favorable_N,
         favorable_M, is_trilayer, automorphism_order, n_points,
-        n_points_interior_to_facets, n_vertices, and facedim_to_nfaces (a dict
-        from face dimension d to HOW MANY d-faces there are; in 4d the 3-faces
-        are the facets).
+        n_points_interior_to_facets, n_vertices, n_rigid_divisors (prime toric
+        divisors whose dual face has no interior points), genera_2face (the
+        genus of each 2-face, sorted descending; sum/max are common asks), and
+        facedim_to_nfaces (a dict from face dimension d to HOW MANY d-faces
+        there are; in 4d the 3-faces are the facets).
     """
     p = get_polytope(ks_ind)
     h11, h21 = int(p.h11(lattice="N")), int(p.h21(lattice="N"))
@@ -214,10 +219,27 @@ def get_polytope_info(ks_ind: str) -> dict:
         "n_points": len(p.points()),
         "n_points_interior_to_facets": len(p.points_interior_to_facets()),
         "n_vertices": len(p.vertices()),
+        "n_rigid_divisors": _n_rigid_divisors(p),
+        "genera_2face": _genera_2face(p),
         "facedim_to_nfaces": {
             d: len(p.faces(d)) for d in range(p.dim() + 1)
         },
     }
+
+# human-read
+def _n_rigid_divisors(p: cytools.Polytope) -> int:
+    """Count rigid prime toric divisors: points not interior to a facet (i.e.
+    interior to a dim 0/1/2 face) whose dual face has no interior points."""
+    return len([pt for d in (0, 1, 2) for f in p.faces(d)
+                for pt in f.interior_points(as_indices=True)
+                if len(f.dual_face().interior_points()) == 0])
+
+# human-read
+def _genera_2face(p: cytools.Polytope) -> list[int]:
+    """Genus of each 2-face (= #interior points of the dual 1-face), sorted
+    descending. The sum/max are common asks."""
+    return sorted((len(f.interior_points()) for f in p.dual().faces(1)),
+                  reverse=True)
 
 # model-read
 def ks_stats(h11: int, h21: int | None = None) -> dict:
