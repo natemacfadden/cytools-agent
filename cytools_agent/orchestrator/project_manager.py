@@ -67,6 +67,18 @@ def _ensure_deliverable(direct, todo):
     return todo
 
 
+def _force_two_steps(direct):
+    """Last-resort >=2-step plan when the model refuses to decompose: a compute
+    step (build the values) and a deliverable step -- so the engineer never
+    faces the whole task at once."""
+    return [
+        f"compute the values the task needs -- output: the numbers/lists to be "
+        f"summarized, for: {direct}",
+        f"produce the requested final result/plot from those values -- output: "
+        f"the deliverable, for: {direct}",
+    ]
+
+
 class ProjectManager:
     """Restate the request, plan it, and write the final answer. Each method is
     a single stateless JSON call (think is per-call: planning reasons, the rest
@@ -107,25 +119,29 @@ class ProjectManager:
         return direct
 
     def plan(self, direct_speech):
-        """Decompose into a COMPLETE multi-step plan; rejected and retried
-        unless it has >=2 steps AND reaches the deliverable. Uses plan_think
-        (decomposition needs reasoning)."""
+        """Decompose into a COMPLETE plan of >=2 steps, EACH with an identified
+        output, ending at the deliverable. Rejected/retried otherwise; if the
+        model still won't comply it is forced into a 2-step compute+deliverable
+        plan (never a single step). Uses plan_think (decomposition reasons)."""
         instruction = (
-            "Break the work into its natural concrete steps for the engineer, "
-            "COVERING THE TASK END TO END. Include ONLY steps the deliverable "
-            "needs (no extra analyses). Each step must PRODUCE a concrete "
-            "result (a number, a list, or a saved file); avoid pure 'build' "
-            "or 'set up' steps that compute nothing -- fold any setup into "
-            "the step that uses it. The LAST step MUST produce the "
-            "requested deliverable (the plot, or the final number). Each step "
-            "is ONE short LARGE-SCALE action in plain words. You MAY name a "
-            "function as a suggestion (e.g. get_cy_info) but NEVER with "
-            "arguments. Never put the whole task in one item. Example: for "
-            "'histogram of the number of prime toric divisors for h11=3 "
-            "polytopes' the todo is [\"fetch the h11=3 polytopes\", \"for "
-            "each, compute its number of prime toric divisors\", \"histogram "
-            "the divisor counts\"]. Reply as JSON {\"todo\": "
-            '["step", ...]}.')
+            "Break the work into AT LEAST 2 concrete steps for the engineer, "
+            "covering the task end to end (never put the whole task in one "
+            "item, and never include a step that computes nothing). For EACH "
+            "step state BOTH the action AND its explicit OUTPUT -- the concrete "
+            "data it produces, described with meaning: e.g. 'output: a list of "
+            "numbers, each the largest curve volume of one polytope', or "
+            "'output: a single integer = the count', or 'output: a saved "
+            "scatter plot of X vs Y'. Each step's output feeds the next; the "
+            "LAST step's output IS the requested deliverable (the plot, or the "
+            "final number). You MAY name a function as a hint (e.g. "
+            "get_cy_info) but NEVER with arguments. Example for 'scatter the "
+            "number of prime toric divisors vs the Euler characteristic for "
+            "h11=3 polytopes': todo = [\"fetch the h11=3 polytopes -- output: "
+            "a list of polytope ids\", \"for each polytope compute its prime-"
+            "toric-divisor count and Euler characteristic -- output: two lists "
+            "of numbers, one value per polytope\", \"scatter the two lists -- "
+            "output: a saved scatter plot\"]. Reply as JSON {\"todo\": "
+            "[\"step -- output: ...\", ...]}.")
         todo = []
         for _ in range(3):     # reject incomplete / single-step plans; retry
             todo = self._json(instruction, direct_speech,
@@ -134,8 +150,10 @@ class ProjectManager:
             if isinstance(todo, list) and len(todo) >= 2 \
                     and _plan_covers(direct_speech, todo):
                 return todo
-        if not (isinstance(todo, list) and todo):
-            todo = [direct_speech]
+        # enforce >=2 even when the model won't decompose: split into a
+        # compute step and a deliverable step rather than dumping the whole task
+        if not (isinstance(todo, list) and len(todo) >= 2):
+            todo = _force_two_steps(direct_speech)
         return _ensure_deliverable(direct_speech, todo)
 
     def addresses(self, step, observations):
@@ -219,7 +237,7 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
         emit("dispatch", round=rnd[0], task=step, plan=todo)
         gloss = glossary_context(step) or ""
         prompt = (f"{TOOL_CHEATSHEET}\n\n{render_evidence()}\n\n"
-                  f"[run_python scratchpad currently holds: "
+                  f"[variables already in the scratchpad: "
                   f"{_code.namespace_summary()}]\n\nYour task:\n{step}"
                   + (f"\n\n{gloss}" if gloss else ""))
         emit("active", who="engineer", phase="working", round=rnd[0])

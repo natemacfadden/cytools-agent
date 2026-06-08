@@ -42,27 +42,43 @@ PARAM_SYNONYMS = {
 
 # human-read
 def forgive_kwargs(fn):
-    """Remap synonym kwargs to the canonical parameter `fn` actually takes.
+    """Make a tool tolerant of how the model actually calls it:
 
-    A synonym is remapped ONLY when its canonical name is a real parameter of
-    `fn` AND that canonical was not already supplied -- so a function's own real
-    parameter is never shadowed (e.g. get_heights keeps its real `n`). The
-    wrapped function keeps its signature and docstring via functools.wraps, so
-    `function_to_schema` still advertises the canonical name to the model.
+    (1) accept reasonable SYNONYMS for the canonical parameter names (only when
+        the canonical is a real parameter of `fn` and was not already supplied,
+        so a real parameter -- e.g. get_heights's `n` -- is never shadowed); and
+    (2) on an argument-BINDING mistake (wrong positional order, a positional/
+        keyword mix-up, a missing or unexpected argument), raise a POINTED error
+        that REMINDS the model of THIS function's argument order and shows the
+        keyword form to use -- instead of Python's opaque "got multiple values
+        for argument 'limit'". The model then fixes its own call.
+
+    functools.wraps keeps the signature/docstring, so `function_to_schema` still
+    advertises the canonical names to the model.
     """
-    params = set(inspect.signature(fn).parameters)
+    sig = inspect.signature(fn)
+    names = list(sig.parameters)
     alias_to_canon = {alias: canon
                       for canon, aliases in PARAM_SYNONYMS.items()
-                      if canon in params
-                      for alias in aliases if alias not in params}
-    if not alias_to_canon:
-        return fn
+                      if canon in names
+                      for alias in aliases if alias not in names}
+    required = [p.name for p in sig.parameters.values()
+                if p.default is inspect.Parameter.empty]
+    example = f"{fn.__name__}(" + ", ".join(f"{r}=..." for r in required) + ")"
+    order = ", ".join(names)
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         for alias, canon in alias_to_canon.items():
             if alias in kwargs and canon not in kwargs:
                 kwargs[canon] = kwargs.pop(alias)
+        try:
+            sig.bind(*args, **kwargs)        # validate the call shape only
+        except TypeError as e:
+            raise TypeError(
+                f"{e}. {fn.__name__} takes its arguments in this order: "
+                f"({order}). Pass them BY KEYWORD to avoid mix-ups, e.g. "
+                f"{example}.") from None
         return fn(*args, **kwargs)
 
     return wrapper

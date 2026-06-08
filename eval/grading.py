@@ -47,6 +47,25 @@ def _nums(text):
     return [round(float(x), 3) for x in re.findall(r"-?\d+(?:\.\d+)?", text)]
 
 
+# Digits that are part of CYTools jargon, NOT a stated result -- e.g. the "2" in
+# "2-face", the "11"/"4" in "h11=4", the "2" in "c2" or "(2,1)", the "3" in "K3".
+# Stripping these before number-matching stops a truth value from being credited
+# just because it collides with a domain term in the answer's prose.
+_DOMAIN_NOISE = re.compile(
+    r"h\^?\d+(?:\s*,\s*\d+)?(?:\s*=\s*-?\d+)?"          # h11, h21, h^1,1, h11=4
+    r"|\bc_?\d+\b"                                       # c2, c_2
+    r"|\d+-(?:face|faces|fold|folds|dimensional|cycle|cycles|form|forms|plane)"
+    r"|\(\s*-?\d+\s*,\s*-?\d+\s*\)"                      # (1,1), (2,1)
+    r"|\b[KP]\d+\b|\bZ_?\d+\b|\bCP\d+\b|\bSU\(\d+\)|\bE\d\b"  # K3, P1, Z2, CP3...
+    r"|\b\d+[dD]\b",                                     # 4d, 3D
+    re.I)
+
+
+def _denoise(text):
+    """Blank out domain-term digits so number-matching sees only real values."""
+    return _DOMAIN_NOISE.sub(" ", text)
+
+
 def _claimed_ints(text):
     """Integers the answer explicitly states: leading number in a bold span,
     or after an 'answer/total/count' marker. Avoids crediting echoed digits."""
@@ -69,9 +88,12 @@ def hit(text, ans):
                 else bool(re.search(r"\bno\b|\bfalse\b|\bnot\b|non-", t)))
     if isinstance(ans, int):
         claims = _claimed_ints(text)
-        if claims:
+        if claims:                                  # explicit "answer: N"/**N**
             return str(ans) in claims
-        return str(ans) in re.sub(r",", "", text)
+        # else: a standalone integer (not inside a longer number, and not part
+        # of a domain term like 2-face / h11=4) in the de-noised text
+        return bool(re.search(rf"(?<!\d){re.escape(str(ans))}(?!\d)",
+                              re.sub(r",", "", _denoise(text))))
     if isinstance(ans, float):
         return any(f"{round(ans, d)}" in text for d in (1, 2, 3, 4, 6))
     if isinstance(ans, (list, tuple)):
@@ -82,7 +104,7 @@ def hit(text, ans):
         # whole answer -- so e.g. "12 simplices" can't satisfy a [1,...,2,...]
         # truth just because the digits 1 and 2 appear somewhere
         target = sorted(round(float(e), 3) for e in _flat(ans))
-        nums, w = _nums(text), len(target)
+        nums, w = _nums(_denoise(text)), len(target)
         return any(sorted(nums[i:i + w]) == target
                    for i in range(len(nums) - w + 1))
     return str(ans).lower() in t

@@ -26,6 +26,7 @@
 # -----------------------------------------------------------------------------
 
 # external imports
+import ast
 import json
 import os
 import time
@@ -48,10 +49,13 @@ ENGINEER_SYSTEM = (
     "the tool); never answer in plain text and never finish without having "
     "run code. The run_python namespace is a persistent SCRATCHPAD -- assign "
     "intermediate results to named variables and build on them. Compute the "
-    "requested quantity EXPLICITLY in code and print exactly it (e.g. info = "
-    "get_polytope_info(ks_ind); print(max(info['genera_2face']))); do not print a "
-    "big dump and read it off by eye, and do NOT read answers off a polytope "
-    "id. Do ONLY the dispatched task -- do not wander into related questions "
+    "requested quantity EXPLICITLY in code and print exactly it: read the field "
+    "THIS task needs from the right call and reduce it, e.g. info = "
+    "get_polytope_info(ks_ind); print(REDUCE(info[FIELD])) -- where you replace "
+    "FIELD and REDUCE with the dict key and reduction (max/min/sum/len/mean/...) "
+    "your task actually requires. Do not print a big dump and read it off by "
+    "eye, and do NOT read answers off a polytope id. Do ONLY the dispatched "
+    "task -- do not wander into related questions "
     "or compute quantities it did not ask for. If a step only fetches or "
     "builds intermediate objects for later steps (polytopes, triangulations, "
     "CYs), finish by reporting a brief confirmation -- their count via "
@@ -143,6 +147,27 @@ def _ollama_chat(model, messages, think, tools=None, as_json=False, label=""):
     return msg
 
 
+def _is_noop_print(code):
+    """True if `code` is ONLY print()s of bare literals (e.g. print('Step 1:
+    ...'), print(4)) -- status narration or a typed answer, no real work. Lets
+    the loop-breaker catch a no-progress loop even when the model varies the
+    printed string."""
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        return False
+    if not tree.body:
+        return False
+    for node in tree.body:
+        if not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "print"):
+            return False
+        if not all(isinstance(a, ast.Constant) for a in node.value.args):
+            return False
+    return True
+
+
 def _parse_json(text):
     """Parse the first JSON object in `text` (small models add stray prose)."""
     text = _strip_template_tags(text or "")
@@ -189,6 +214,7 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
     pending = {"o": None}
     n0 = len(evidence)
     nags = 0
+    code_hist = []           # normalized ran_code this round, to catch loops
     t_llm = [0.0]
     n_llm = [0]
     t_code = [0.0]
@@ -252,6 +278,20 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
             if done and answer and grounded(answer, evidence[n0:]):
                 interpret(answer)
                 return finish(answer, True)
+            # loop-breaker: bucket literal/narration prints together so varying
+            # the printed string can't dodge the check; stop a spinning round
+            norm = "<noop-print>" if _is_noop_print(code) else \
+                " ".join(code.split())
+            reps = code_hist.count(norm) + 1
+            code_hist.append(norm)
+            if reps >= 3:        # confirmed loop -- stop burning the step budget
+                break
+            if reps == 2:        # spinning -> nudge toward different code
+                tool_reply("No real progress -- you repeated equivalent code or "
+                           "only printed status text. Run DIFFERENT code that "
+                           "actually computes the asked-for quantity (loop over "
+                           "the fetched objects), or finish if you have it.")
+                continue
             note = ("\n[your answer is not in this output; compute and print "
                     "EXACTLY the answer before finishing]"
                     if done and answer else "")

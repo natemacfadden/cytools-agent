@@ -30,6 +30,51 @@ import cytools
 # local imports
 from cytools_agent.tools._synonyms import forgive_kwargs
 
+# keys/attrs that mean "the id" -- so a model that treats a fetched id as a
+# record (polytopes[0]['id'], .ks_ind) gets the id back instead of an opaque
+# "string indices must be integers".
+_ID_KEYS = {"id", "ks_ind", "ks", "polytope_id", "poly_id", "pid", "name"}
+
+
+# human-read
+class _PolytopeId(str):
+    """A polytope id string that also answers dict-/attribute-style id access by
+    returning ITSELF -- fetch_polytopes returns these, so polytopes[0]['id'] (or
+    .ks_ind) just works. It is a str everywhere else; character indexing and
+    slicing are unchanged. A non-id string key points the model at the data tool."""
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            if key.lower() in _ID_KEYS:
+                return self
+            raise KeyError(
+                f"a fetched element IS the polytope id string itself, not a "
+                f"record -- ['{key}'] is not available. For polytope data call "
+                f"get_polytope_info(<id>)['{key}'] (or get_cy_info(...)).")
+        return str.__getitem__(self, key)     # int / slice: normal str indexing
+
+    def __getattr__(self, name):
+        if name in _ID_KEYS:
+            return self
+        raise AttributeError(name)
+
+
+def _ids(seq, h11=None, h21=None, favorable=None):
+    """Wrap fetched ids so dict-/attr-style id access is forgiven. If the query
+    matched NOTHING, raise a pointed error (instead of returning [] that the
+    caller then explodes on with polytope_ids[0] -> IndexError)."""
+    seq = list(seq)
+    if not seq:
+        cond = "h11=%s" % h11 + (", h21=%s" % h21 if h21 is not None else "") \
+            + (", favorable=%s" % favorable if favorable is not None else "")
+        raise ValueError(
+            f"fetch_polytopes found NO polytopes for {cond}. Check ks_stats(h11) "
+            f"for which (h11, h21) exist and their counts -- h11 must be >=1 and "
+            f"present in the database, and over-constraining h21/favorable can "
+            f"also yield none.")
+    return [_PolytopeId(s) for s in seq]
+
+
 _CACHE   = {} # ks_ind -> vertices (list[list[int]])
 _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool}; how much of each
               # query is known as a contiguous prefix (from index 0) in the
@@ -94,9 +139,10 @@ def get_polytope(ks_ind: str | cytools.Polytope) -> cytools.Polytope:
         return ks_ind
     if not isinstance(ks_ind, str):
         raise TypeError(
-            f"ks_ind must be a polytope id string like 'h11-3_h21-43_ind-0' "
-            f"(or a Polytope), not {type(ks_ind).__name__} {ks_ind!r}. Get "
-            f"ids from fetch_polytopes(limit, h11)."
+            f"ks_ind must be a polytope id string of the form "
+            f"'h11-X_h21-Y_ind-Z' (or a Polytope), not "
+            f"{type(ks_ind).__name__} {ks_ind!r}. Get ids from "
+            f"fetch_polytopes(limit, h11)."
         )
     if ks_ind not in _CACHE:
         _autofetch(ks_ind)
@@ -189,6 +235,7 @@ def _autofetch(ks_ind: str) -> None:
         )
 
 # model-read
+@forgive_kwargs
 def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
                     favorable: bool | None = None) -> list[str]:
     """
@@ -222,7 +269,7 @@ def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
     """
     if favorable is None:
         _ensure_cached(h11, h21, limit)
-        return _get_cached_ks_inds(h11, h21)[:limit]
+        return _ids(_get_cached_ks_inds(h11, h21)[:limit], h11, h21)
 
     # favorable: scan deeper into the (h11, h21) list until `limit` matches are
     # found (the first favorable one may be well past index 0), or the DB ends
@@ -232,7 +279,7 @@ def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
         ids = _get_cached_ks_inds(h11, h21)
         fav = _filter_favorable(ids[:scan], favorable)
         if len(fav) >= limit or len(ids) < scan:
-            return fav[:limit]
+            return _ids(fav[:limit], h11, h21, favorable)
         scan *= 2
 
 # model-read
@@ -293,6 +340,7 @@ def _genera_2face(p: cytools.Polytope) -> list[int]:
                   reverse=True)
 
 # model-read
+@forgive_kwargs
 def ks_stats(h11: int, h21: int | None = None) -> dict:
     """
     Polytope counts in the Kreuzer-Skarke database of 4d reflexive polytopes.
