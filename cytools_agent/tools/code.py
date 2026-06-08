@@ -24,6 +24,7 @@
 # external imports
 import ast
 import contextlib
+import difflib
 import inspect
 import glob
 import io
@@ -215,11 +216,27 @@ def run_python(code: str) -> str:
                    "did not see.)")
     except Exception as e:
         out = buf.getvalue() + "\n" + _format_user_traceback(e, code)
-        if isinstance(e, (ImportError, NameError)):
+        missing = getattr(e, "name", None)
+        if isinstance(e, ImportError) or (isinstance(e, NameError)
+                                          and missing in _PRELOADED):
             # the tools are preloaded, not importable modules: a model that
-            # writes `import get_cy_info` hits this -- tell it they exist
+            # writes `import get_cy_info` (or references one) hits this
             out += ("\n[these tools are already available here -- call them "
-                    "directly: " + ", ".join(_PRELOADED) + "]")
+                    "directly, no import: " + ", ".join(_PRELOADED) + "]")
+        elif isinstance(e, NameError):
+            # a near-miss for a real tool name (e.g. get_polytopes ->
+            # fetch_polytopes) -- point to it; the model's intent is clear
+            near = difflib.get_close_matches(missing or "", _PRELOADED, n=2,
+                                             cutoff=0.6)
+            if near:
+                out += (f"\n[no {missing!r} here -- did you mean: "
+                        + ", ".join(near) + "?]")
+            else:
+                # an undefined *variable* (often a doc placeholder copied
+                # verbatim): assign/fetch it first, do not import it
+                out += (f"\n[name {missing!r} is not defined yet -- assign it "
+                        f"before use; the scratchpad holds: "
+                        f"{namespace_summary()}]")
     out += _save_open_figures()  # persist any plots so they can be viewed
     if len(out) > _MAX_OUTPUT:
         out = "...(truncated)...\n" + out[-_MAX_OUTPUT:]
