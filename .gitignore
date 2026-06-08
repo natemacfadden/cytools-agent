@@ -7,3 +7,4 @@ scratch/*
 .claude/
 *.png
 *.log
+*.jsonl
