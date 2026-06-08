@@ -34,6 +34,43 @@ _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool}; how much of each
               # query is known as a contiguous prefix (from index 0) in the
               # cache
 
+# Optional on-disk persistence of the (real) fetched polytopes, so repeated
+# runs do not re-hit the Kreuzer-Skarke database. First fetch is genuine; later
+# runs read from disk. Set CYTOOLS_AGENT_KS_CACHE="" to disable.
+_REPO = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_DISK = os.environ.get("CYTOOLS_AGENT_KS_CACHE",
+                       os.path.join(_REPO, "scratch", "ks_cache.json"))
+
+
+# human-read
+def _load_disk_cache():
+    if not _DISK or not os.path.exists(_DISK):
+        return
+    try:
+        with open(_DISK) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return
+    _CACHE.update(d.get("cache", {}))
+    for k, v in d.get("fetched", {}).items():
+        h11s, h21s = k.split(",")
+        _FETCHED[(int(h11s), int(h21s) if h21s else None)] = v
+
+
+# human-read
+def _save_disk_cache():
+    if not _DISK:
+        return
+    try:
+        os.makedirs(os.path.dirname(_DISK), exist_ok=True)
+        fetched = {f"{h11},{'' if h21 is None else h21}": v
+                   for (h11, h21), v in _FETCHED.items()}
+        with open(_DISK, "w") as f:
+            json.dump({"cache": _CACHE, "fetched": fetched}, f)
+    except OSError:
+        pass
+
 # Kreuzer-Skarke polytope counts for the full 4d database
 # (calabi-yau-data/polytopes-4d on HuggingFace; 473,800,776 polytopes total).
 # ks_counts.json holds both by_pair (h11, h21) and by_h11 (h21-agnostic) counts.
@@ -44,6 +81,8 @@ _KS_PAIR = {tuple(int(x) for x in k.split(",")): v
             for k, v in _KS["by_pair"].items()}
 _KS_H11 = {int(k): v for k, v in _KS["by_h11"].items()}
 
+_load_disk_cache()   # serve prior real fetches from disk, sparing the KS DB
+
 # model-read (exposed in the run_python namespace)
 def get_polytope(ks_ind: str | cytools.Polytope) -> cytools.Polytope:
     """Reconstruct the Polytope for a ks_ind, fetching it on demand if the id
@@ -51,6 +90,12 @@ def get_polytope(ks_ind: str | cytools.Polytope) -> cytools.Polytope:
     through, so tools accept either an id or a Polytope."""
     if isinstance(ks_ind, cytools.Polytope):
         return ks_ind
+    if not isinstance(ks_ind, str):
+        raise TypeError(
+            f"ks_ind must be a polytope id string like 'h11-3_h21-43_ind-0' "
+            f"(or a Polytope), not {type(ks_ind).__name__} {ks_ind!r}. Get "
+            f"ids from fetch_polytopes(limit, h11)."
+        )
     if ks_ind not in _CACHE:
         _autofetch(ks_ind)
     return cytools.Polytope(_CACHE[ks_ind])
@@ -121,6 +166,7 @@ def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
         "count": max(n, prev["count"] if prev else 0),
         "complete": bool(prev and prev["complete"]) or (n < limit),
     }
+    _save_disk_cache()   # persist the real fetch so reruns skip the KS DB
 
 # human-read
 def _autofetch(ks_ind: str) -> None:
@@ -149,9 +195,11 @@ def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
     Each returned id has the form "h11-X_h21-Y_ind-Z", where Z is the position
     of the polytope within the (h11, h21) group.
 
-    `limit` is REQUIRED. If the user has not said how many polytopes they want,
-    ASK THEM before calling this tool - do NOT guess a limit. The KS database
-    is large and a high limit can fetch thousands.
+    `limit` is REQUIRED. Do NOT guess it: first call ks_stats(h11[, h21]) to
+    see how many polytopes exist, then pass that count (the KS database is
+    large, so an arbitrary high limit can fetch thousands). For all FAVORABLE
+    ones, pass favorable=True with limit set to that count -- you get fewer
+    only if the database runs out.
 
     Parameters
     ----------
@@ -259,12 +307,16 @@ def ks_stats(h11: int, h21: int | None = None) -> dict:
     Returns
     -------
     dict
-        count and exists - for the exact (h11, h21) when h21 is given, else the
-        h21-agnostic total at this h11.
+        count and exists - for the exact (h11, h21) when h21 is given. When h21
+        is omitted: count (h21-agnostic total at this h11) and h21_values (the
+        sorted list of h21 that actually occur at this h11 -- iterate over this
+        to visit every (h11, h21), do NOT assume a range).
     """
     if h21 is not None:
         n = _KS_PAIR.get((h11, h21), 0)
         return {"h11": h11, "h21": h21, "count": n, "exists": n > 0}
 
     n = _KS_H11.get(h11, 0)
-    return {"h11": h11, "count": n, "exists": n > 0}
+    h21_values = sorted(b for (a, b) in _KS_PAIR if a == h11)
+    return {"h11": h11, "count": n, "exists": n > 0,
+            "h21_values": h21_values}

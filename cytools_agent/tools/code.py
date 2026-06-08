@@ -25,7 +25,9 @@
 import ast
 import contextlib
 import inspect
+import glob
 import io
+import linecache
 import os
 import sys
 import traceback
@@ -71,7 +73,7 @@ for _name, _obj in _NS.items():
 _PRELOADED = list(_NS)   # tool names, captured before run_python adds vars
 
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
-_FIG_DIR = "scratch"
+_FIG_DIR = os.environ.get("CYTOOLS_AGENT_FIG_DIR", "scratch")   # sandboxable
 _fig_count = 0
 
 
@@ -89,6 +91,18 @@ def _assigned_names(tree):
 
 
 # human-read
+def reset_figures():
+    """Clear figures from the active figure dir and reset the counter, so a new
+    session archives only the figures IT made. Sequential runs in one process
+    otherwise share the dir, and save_log (which globs fig_*.png) would sweep
+    up a prior run's leftovers."""
+    global _fig_count
+    _fig_count = 0
+    for f in glob.glob(os.path.join(_FIG_DIR, "fig_*.png")):
+        os.remove(f)
+
+
+# human-read
 def _save_open_figures():
     """Save open matplotlib figures; return a note with paths."""
     if plt is None or not plt.get_fignums():
@@ -103,6 +117,46 @@ def _save_open_figures():
         paths.append(path)
     plt.close("all")
     return f"\n[saved {len(paths)} figure(s): {', '.join(paths)}]"
+
+
+# human-read
+def _describe(val):
+    """A short size hint for a scratchpad value."""
+    if isinstance(val, np.ndarray):
+        return f"ndarray{tuple(val.shape)}"
+    if isinstance(val, (str, list, tuple, dict, set)):
+        return f"{type(val).__name__}[len {len(val)}]"
+    return type(val).__name__
+
+
+# human-read
+def namespace_summary():
+    """The user-defined names live in the persistent run_python scratchpad,
+    each with a size hint -- so a multi-step session can see what it has
+    already built (preloaded tools, modules, and privates are omitted)."""
+    parts = [f"{name}={_describe(val)}" for name, val in _NS.items()
+             if name not in _PRELOADED and not name.startswith("_")
+             and not inspect.ismodule(val)]
+    return ", ".join(parts) if parts else "(empty)"
+
+
+# human-read
+def _format_user_traceback(exc, code):
+    """A traceback showing ONLY the user's code -- the offending line with its
+    source text -- not run_python's exec/compile machinery. The source lines
+    are surfaced by registering `code` in linecache under the <run_python>
+    name (exec'd strings have no file, so tracebacks otherwise omit the line).
+    Falls back to the full traceback if no user frame is found (e.g. a
+    SyntaxError raised before execution)."""
+    linecache.cache["<run_python>"] = (
+        len(code), None, code.splitlines(keepends=True), "<run_python>")
+    frames = [f for f in traceback.extract_tb(exc.__traceback__)
+              if f.filename == "<run_python>"]
+    only = "".join(traceback.format_exception_only(type(exc), exc))
+    if not frames:
+        return only if isinstance(exc, SyntaxError) else traceback.format_exc()
+    return ("Traceback (most recent call last):\n"
+            + "".join(traceback.format_list(frames)) + only)
 
 
 # model-read
@@ -135,7 +189,7 @@ def run_python(code: str) -> str:
     """
     buf = io.StringIO()
     try:
-        tree = ast.parse(code)
+        tree = ast.parse(code, "<run_python>")
         last = tree.body[-1] if tree.body else None
         with contextlib.redirect_stdout(buf):
             if isinstance(last, ast.Expr):
@@ -149,7 +203,7 @@ def run_python(code: str) -> str:
                 if val is not None:
                     print(repr(val))
             else:
-                exec(code, _NS)
+                exec(compile(code, "<run_python>", "exec"), _NS)
         out = buf.getvalue()
         if not out:
             # nothing printed: name the variables the code assigned so the
@@ -160,7 +214,7 @@ def run_python(code: str) -> str:
                    + " print() the value you need; do not report values you "
                    "did not see.)")
     except Exception as e:
-        out = buf.getvalue() + "\n" + traceback.format_exc()
+        out = buf.getvalue() + "\n" + _format_user_traceback(e, code)
         if isinstance(e, (ImportError, NameError)):
             # the tools are preloaded, not importable modules: a model that
             # writes `import get_cy_info` hits this -- tell it they exist

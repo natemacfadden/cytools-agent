@@ -25,6 +25,7 @@ import cytools
 
 # local imports
 from cytools_agent.tools.polytope import get_polytope
+from cytools_agent.tools.cy import _as_heights
 
 # human-read
 def _triangulation_difficulty(poly: cytools.Polytope) -> tuple[float, str]:
@@ -146,6 +147,7 @@ def get_triangulation_info(ks_ind: str, heights: list[float]) -> dict:
         is_valid, is_fine, is_regular, is_star, hash, n_simplices. A list of
         these if multiple height vectors were passed.
     """
+    heights = _as_heights(heights)
     if heights and isinstance(heights[0], (list, tuple)):
         return [get_triangulation_info(ks_ind, h) for h in heights]
     p = get_polytope(ks_ind)

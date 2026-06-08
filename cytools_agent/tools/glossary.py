@@ -85,7 +85,9 @@ _GLOSSARY = {
         ".secondary_cone()",
         ["secondary fan"]),
     "mori cone": (
-        "Cone of effective curves of the CY; its generating rays (in basis).",
+        "Cone of effective curves of the CY; its generating rays (in basis). "
+        "cone='toric' gives the toric Mori cone of this triangulation; "
+        "cone='Kcup' gives Mcap (see 'mori cone cap').",
         "get_cy_cones(ks, h, cone='toric')['mori_rays']",
         ["mori cone rays", "effective curve cone", "cone of effective curves",
          "mori generators", "toric mori cone"]),
@@ -100,9 +102,10 @@ _GLOSSARY = {
          "hyperplanes bounding the kahler cone", "kahler cone facet normals"]),
     "toric curve volume": (
         "Volume of an effective (Mori-cone) curve at a Kahler point t: "
-        "(Mori ray) . t. The minimum over rays is the smallest curve volume.",
+        "(Mori ray) . t. get_cy_info returns the list curve_volumes; reduce it "
+        "with min()/max() for the smallest/largest.",
         "info = get_cy_info(ks, h, t='tip', cone='toric'); "
-        "info['curve_volumes']; info['min_curve_volume']",
+        "info['curve_volumes']   # min(...)/max(...) for smallest/largest",
         ["curve volume", "curve volumes", "minimum curve volume",
          "min curve volume", "toric-curve volume"]),
     "divisor volume": (
@@ -175,10 +178,13 @@ _GLOSSARY = {
         ["distinct cys", "number of distinct calabi-yaus",
          "inequivalent calabi-yaus"]),
     "mori cone cap": (
-        "Mcap (mori_cone_cap): the capped Mori cone, the conical hull over its "
-        "rays. Its DUAL is Kcup, a more accurate Kahler cone than the toric "
-        "one, bounded by those same rays as hyperplane normals. Here "
-        "cone='Kcup' selects Mcap; cone='toric' is the cheaper toric cone.",
+        "Mcap (cy.mori_cone_cap): a Mori cone, the OUTER approximation to the "
+        "true Mori cone. Its DUAL (rays <-> hyperplanes) is Kcup, a Kahler "
+        "cone: the INNER approximation to the true Kahler cone, the union of "
+        "the toric Kahler cones of all 2-face-equivalent triangulations. Kcup "
+        "!= Mcap; they are dual cones. cone='Kcup' selects this pair (most "
+        "accurate, costly at large h11); cone='toric' is the cheaper toric "
+        "cone of one triangulation.",
         "get_cy_cones(ks, h, cone='Kcup')['mori_rays']   # Mcap rays; "
         "['kahler_cone_hyperplanes'] gives them as Kcup's hyperplane normals",
         ["kcup", "mcap", "capped mori cone"]),
