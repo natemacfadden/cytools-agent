@@ -28,6 +28,7 @@ import os
 import cytools
 
 # local imports
+from cytools_agent.tools._synonyms import forgive_kwargs
 
 _CACHE   = {} # ks_ind -> vertices (list[list[int]])
 _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool}; how much of each
@@ -84,6 +85,7 @@ _KS_H11 = {int(k): v for k, v in _KS["by_h11"].items()}
 _load_disk_cache()   # serve prior real fetches from disk, sparing the KS DB
 
 # model-read (exposed in the run_python namespace)
+@forgive_kwargs
 def get_polytope(ks_ind: str | cytools.Polytope) -> cytools.Polytope:
     """Reconstruct the Polytope for a ks_ind, fetching it on demand if the id
     is well-formed but not yet cached. An already-built Polytope passes
@@ -234,6 +236,7 @@ def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
         scan *= 2
 
 # model-read
+@forgive_kwargs
 def get_polytope_info(ks_ind: str) -> dict:
     """
     Return geometric information about a cached polytope.

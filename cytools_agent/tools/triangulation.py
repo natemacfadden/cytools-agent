@@ -26,6 +26,7 @@ import cytools
 # local imports
 from cytools_agent.tools.polytope import get_polytope
 from cytools_agent.tools.cy import _as_heights
+from cytools_agent.tools._synonyms import forgive_kwargs
 
 # human-read
 def _triangulation_difficulty(poly: cytools.Polytope) -> tuple[float, str]:
@@ -59,6 +60,7 @@ def _shaped(heights: list[list[float]]) -> dict:
     }
 
 # model-read
+@forgive_kwargs
 def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
                 effort: float = 0.5,
                 seed: int | None = None) -> dict:
@@ -129,6 +131,7 @@ def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
     raise ValueError(f"kind must be 'NTFE' or 'FRST', got {kind!r}")
 
 # model-read
+@forgive_kwargs
 def get_triangulation_info(ks_ind: str, heights: list[float]) -> dict:
     """
     Get info about the triangulation defined by input heights.

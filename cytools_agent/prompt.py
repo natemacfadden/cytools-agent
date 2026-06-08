@@ -48,7 +48,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "definition and exact recipe BEFORE computing -- it rarely means the "
     "obvious thing. "
     "For a quantity without a dedicated tool, compute it in run_python from "
-    "get_polytope(ks) / get_cy(ks, heights). "
+    "get_polytope(ks_ind) / get_cy(ks_ind, heights). "
     "Call one tool at a time and wait for its result. "
     "Reuse earlier results; never re-call a tool with the same arguments."
 )

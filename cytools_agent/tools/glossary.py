@@ -19,9 +19,9 @@
 # Description:  Glossary that maps CYTools / toric-geometry jargon to a plain
 #               definition AND the exact recipe to compute it with these tools.
 #               Lets the model translate a specialized term in a question into
-#               the right operation instead of guessing. Recipes assume `ks` is
+#               the right operation instead of guessing. Recipes assume `ks_ind` is
 #               a fetched polytope id and, where a CY is needed,
-#               `h = get_heights(ks)["heights"][0]`.
+#               `h = get_heights(ks_ind)["heights"][0]`.
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -35,45 +35,45 @@ _GLOSSARY = {
         "Genus of a 2-face = number of interior lattice points of the DUAL "
         "1-face (edge). One value per 2-face; questions often want the max or "
         "the sum (total genus).",
-        "get_polytope_info(ks)['genera_2face']   # sorted desc; take max/sum",
+        "get_polytope_info(ks_ind)['genera_2face']   # sorted desc; take max/sum",
         ["genus", "2-face genera", "face genus", "genus of a 2-face",
          "genera of the 2-faces", "total genus", "sum of 2-face genera"]),
     "favorable": (
         "Favorable (lattice N or M): all Kahler (1,1)-forms of the CY "
         "hypersurface descend from the ambient toric variety. The standard CY "
         "build needs N-favorability.",
-        "get_polytope_info(ks)['favorable_N']   # or 'favorable_M'",
+        "get_polytope_info(ks_ind)['favorable_N']   # or 'favorable_M'",
         ["favorability", "n-favorable", "m-favorable", "favorable polytope"]),
     "ntfe": (
         "Not-2-face-equivalent triangulations: FRSTs modulo equal restriction "
         "to 2-faces -- inequivalent triangulations giving possibly-distinct "
         "CYs (distinctness is not proven).",
-        "get_heights(ks)                  # kind='NTFE' default; "
+        "get_heights(ks_ind)                  # kind='NTFE' default; "
         "count = result['shape'][0]",
         ["inequivalent triangulations", "not 2-face equivalent",
          "ntfe triangulations", "ntfe_frsts"]),
     "frst": (
         "Fine Regular Star Triangulation. Many more than NTFE.",
-        "get_heights(ks, kind='FRST')     # count = result['shape'][0]",
+        "get_heights(ks_ind, kind='FRST')     # count = result['shape'][0]",
         ["fine regular star triangulation", "fine regular star"]),
     "fine": (
         "A triangulation is fine if it uses ALL points of the point "
         "configuration (none left out). For a 4D reflexive polytope the "
         "configuration is the lattice points NOT interior to a facet; in "
         "general it is all lattice points.",
-        "get_triangulation_info(ks, h)['is_fine']",
+        "get_triangulation_info(ks_ind, h)['is_fine']",
         ["fine triangulation"]),
     "regular": (
         "A triangulation is regular if it is induced by a height vector -- "
         "equivalently, its secondary cone is solid (full-dimensional).",
-        "get_triangulation_info(ks, h)['is_regular']",
+        "get_triangulation_info(ks_ind, h)['is_regular']",
         ["regular triangulation"]),
     "star": (
         "A triangulation is star if the origin is a vertex of every simplex "
         "(required for the toric / CY construction). Any fine, regular "
         "triangulation of a 4D reflexive polytope can be made star just by "
         "lowering the height of the origin.",
-        "get_triangulation_info(ks, h)['is_star']",
+        "get_triangulation_info(ks_ind, h)['is_star']",
         ["star triangulation"]),
     "secondary cone": (
         "The cone of height vectors that induce a given triangulation -- the "
@@ -81,14 +81,14 @@ _GLOSSARY = {
         "triangulation is regular iff this cone is solid. The toric Kahler "
         "cone is this cone with its lineality space projected out (the chamber "
         "complex of the secondary fan).",
-        "get_polytope(ks).triangulate(heights=h, make_star=True)"
+        "get_polytope(ks_ind).triangulate(heights=h, make_star=True)"
         ".secondary_cone()",
         ["secondary fan"]),
     "mori cone": (
         "Cone of effective curves of the CY; its generating rays (in basis). "
         "cone='toric' gives the toric Mori cone of this triangulation; "
         "cone='Kcup' gives Mcap (see 'mori cone cap').",
-        "get_cy_cones(ks, h, cone='toric')['mori_rays']",
+        "get_cy_cones(ks_ind, h, cone='toric')['mori_rays']",
         ["mori cone rays", "effective curve cone", "cone of effective curves",
          "mori generators", "toric mori cone"]),
     "kahler cone": (
@@ -97,67 +97,67 @@ _GLOSSARY = {
         "vectors. Equivalently, the toric Kahler cone is the secondary cone "
         "with its lineality space projected out (the chamber complex of the "
         "secondary fan).",
-        "len(get_cy_cones(ks, h, cone='toric')['kahler_cone_hyperplanes'])",
+        "len(get_cy_cones(ks_ind, h, cone='toric')['kahler_cone_hyperplanes'])",
         ["kaehler cone", "kahler cone hyperplanes", "facet normals",
          "hyperplanes bounding the kahler cone", "kahler cone facet normals"]),
     "toric curve volume": (
         "Volume of an effective (Mori-cone) curve at a Kahler point t: "
         "(Mori ray) . t. get_cy_info returns the list curve_volumes; reduce it "
         "with min()/max() for the smallest/largest.",
-        "info = get_cy_info(ks, h, t='tip', cone='toric'); "
+        "info = get_cy_info(ks_ind, h, t='tip', cone='toric'); "
         "info['curve_volumes']   # min(...)/max(...) for smallest/largest",
         ["curve volume", "curve volumes", "minimum curve volume",
          "min curve volume", "toric-curve volume"]),
     "divisor volume": (
         "Volume of a basis divisor at a Kahler point t.",
-        "get_cy_info(ks, h, t='tip')['divisor_volumes']",
+        "get_cy_info(ks_ind, h, t='tip')['divisor_volumes']",
         ["divisor volumes"]),
     "cy volume": (
         "Total volume of the Calabi-Yau at a Kahler point t.",
-        "get_cy_info(ks, h, t='tip')['cy_volume']",
+        "get_cy_info(ks_ind, h, t='tip')['cy_volume']",
         ["calabi-yau volume", "total cy volume", "volume of the calabi-yau"]),
     "triple intersection numbers": (
         "The intersection-ring numbers kappa_ijk of the CY, in a divisor "
         "basis.",
-        "get_cy_info(ks, h)['intersection_numbers']  # nonzero, [i,j,k,value]",
+        "get_cy_info(ks_ind, h)['intersection_numbers']  # nonzero, [i,j,k,value]",
         ["intersection numbers", "triple intersections", "intersection ring",
          "kappa"]),
     "second chern class": (
         "Integrals of the CY's second Chern class c2 over each basis divisor "
         "(a vector, one entry per basis divisor).",
-        "get_cy_info(ks, h)['second_chern_class']",
+        "get_cy_info(ks_ind, h)['second_chern_class']",
         ["c2", "chern class", "second chern"]),
     "hodge numbers": (
         "h^1,1 (number of Kahler moduli) and h^2,1 (number of "
         "complex-structure moduli) of the CY threefold.",
-        "get_polytope_info(ks)['h11'], get_polytope_info(ks)['h21']",
+        "get_polytope_info(ks_ind)['h11'], get_polytope_info(ks_ind)['h21']",
         # NB: no bare 'h11'/'h21' synonyms -- they appear as the spec 'h11=X'
         # in almost every question and would false-trigger the scanner.
         ["hodge number", "hodge numbers", "hpq"]),
     "euler characteristic": (
         "Euler characteristic of the CY threefold, 2*(h11 - h21).",
-        "get_cy_info(ks, h)['euler_characteristic']",
+        "get_cy_info(ks_ind, h)['euler_characteristic']",
         ["chi", "euler char", "euler number"]),
     "prime toric divisors": (
         "Prime toric divisors of the CY = the boundary lattice points not "
         "interior to facets (every lattice point except the origin and those "
         "interior to facets). The count is n_prime_toric_divisors.",
-        "get_cy_info(ks, h)['n_prime_toric_divisors']   # == "
-        "len(get_polytope(ks).boundary_points_not_interior_to_facets())",
+        "get_cy_info(ks_ind, h)['n_prime_toric_divisors']   # == "
+        "len(get_polytope(ks_ind).boundary_points_not_interior_to_facets())",
         ["toric divisors", "number of prime toric divisors"]),
     "glsm charge matrix": (
         "GLSM charge (weight) matrix of the polytope.",
-        "get_polytope(ks).glsm_charge_matrix()",
+        "get_polytope(ks_ind).glsm_charge_matrix()",
         ["glsm matrix", "charge matrix", "weight matrix", "glsm"]),
     "facet": (
         "A facet is a codimension-1 face; for a 4d polytope, the 3-faces.",
-        "get_polytope_info(ks)['facedim_to_nfaces'][3]   # number of facets",
+        "get_polytope_info(ks_ind)['facedim_to_nfaces'][3]   # number of facets",
         ["facets", "3-face", "3-faces", "codimension-1 face"]),
     "automorphisms": (
         "The SL+/-(d,Z) lattice automorphisms (4x4 matrices) that fix the "
         "polytope; the group's order is automorphism_order.",
-        "get_polytope(ks).automorphisms()   # matrices; "
-        "count = get_polytope_info(ks)['automorphism_order']",
+        "get_polytope(ks_ind).automorphisms()   # matrices; "
+        "count = get_polytope_info(ks_ind)['automorphism_order']",
         ["automorphism", "automorphism group", "automorphism group order",
          "automorphism order", "order of the automorphism group",
          "symmetry group order"]),
@@ -165,16 +165,16 @@ _GLOSSARY = {
         "The smallest-norm point inside the cone that is at least distance c "
         "from every defining hyperplane (wall) -- a canonical point well "
         "inside the cone. With t='tip' here, c=1.",
-        "get_cy_info(ks, h, t='tip')",
+        "get_cy_info(ks_ind, h, t='tip')",
         ["tip of the stretched cone", "stretched kahler cone tip",
          "cone tip"]),
     "distinct calabi-yaus": (
         "Number of possibly-distinct CYs from a polytope = its NTFE count "
         "(an upper bound; true distinctness is not proven). For provably "
         "distinct CYs, dedupe by CY equality instead.",
-        "get_heights(ks)['shape'][0]   # possibly-distinct (NTFE) count; "
+        "get_heights(ks_ind)['shape'][0]   # possibly-distinct (NTFE) count; "
         "provably-distinct: len({t.get_cy() for t in "
-        "get_polytope(ks).all_triangulations()})",
+        "get_polytope(ks_ind).all_triangulations()})",
         ["distinct cys", "number of distinct calabi-yaus",
          "inequivalent calabi-yaus"]),
     "mori cone cap": (
@@ -185,28 +185,28 @@ _GLOSSARY = {
         "!= Mcap; they are dual cones. cone='Kcup' selects this pair (most "
         "accurate, costly at large h11); cone='toric' is the cheaper toric "
         "cone of one triangulation.",
-        "get_cy_cones(ks, h, cone='Kcup')['mori_rays']   # Mcap rays; "
+        "get_cy_cones(ks_ind, h, cone='Kcup')['mori_rays']   # Mcap rays; "
         "['kahler_cone_hyperplanes'] gives them as Kcup's hyperplane normals",
         ["kcup", "mcap", "capped mori cone"]),
     "stanley-reisner ideal": (
         "Generators of the Stanley-Reisner ideal (the minimal non-faces) of "
         "the star triangulation / toric variety.",
-        "get_polytope(ks).triangulate(heights=h, make_star=True).sr_ideal()",
+        "get_polytope(ks_ind).triangulate(heights=h, make_star=True).sr_ideal()",
         ["sr ideal", "stanley reisner", "minimal non-faces"]),
     "2d reflexive subpolytopes": (
         "The 2-dimensional reflexive sub-polytopes contained in the polytope.",
-        "get_polytope(ks).find_2d_reflexive_subpolytopes()",
+        "get_polytope(ks_ind).find_2d_reflexive_subpolytopes()",
         ["2d reflexive subpolys", "2-dimensional reflexive subpolytopes"]),
     "d3 tadpole charge": (
         "D3 tadpole charge of the CY: Q0 = (2 + h11 + h21) / 2.",
-        "info = get_polytope_info(ks); (2 + info['h11'] + info['h21']) / 2",
+        "info = get_polytope_info(ks_ind); (2 + info['h11'] + info['h21']) / 2",
         ["tadpole", "tadpole charge", "q0"]),
     "dual polytope": (
-        "The dual (polar) polytope, get_polytope(ks).dual(). Mirror symmetry "
+        "The dual (polar) polytope, get_polytope(ks_ind).dual(). Mirror symmetry "
         "relates a CY to the CY of its dual polytope and swaps h11 <-> h21 -- "
         "it is a relation between the two polytopes, not a property of one. So "
         "the dual polytope's h11 equals this CY's h21.",
-        "get_polytope(ks).dual()   # dual/polar polytope; its "
+        "get_polytope(ks_ind).dual()   # dual/polar polytope; its "
         ".h11(lattice='N') is the mirror h11 (= this CY's h21)",
         ["polar polytope", "polar dual", "mirror", "mirror symmetry",
          "mirror h11"]),
@@ -214,12 +214,12 @@ _GLOSSARY = {
         "Rigid prime toric divisors: a prime toric divisor (a lattice point "
         "interior to a face of dim 0-2) is rigid iff its dual face has no "
         "interior points. NOT the same as the prime-divisor count.",
-        "get_polytope_info(ks)['n_rigid_divisors']",
+        "get_polytope_info(ks_ind)['n_rigid_divisors']",
         ["rigid prime toric divisors", "rigid divisor", "rigid toric divisor"]),
     "induced 2-face triangulation": (
         "The triangulation a star triangulation induces on each 2-face -- "
         "i.e. its restriction to the 2-faces, one per 2-face.",
-        "t = get_polytope(ks).triangulate(heights=h, make_star=True); "
+        "t = get_polytope(ks_ind).triangulate(heights=h, make_star=True); "
         "faces = t.restrict(restrict_dim=2)   # induced triangulation per "
         "2-face. Per-face counts: [len(f) for f in faces]; total: "
         "sum(len(f) for f in faces)",
@@ -260,7 +260,7 @@ def cy_glossary(term: str = "") -> dict:
     dict
         {"term", "definition", "recipe"} for a match; {"terms": [...]} when no
         term is given; {"error", "known_terms"} when nothing matches. Recipes
-        assume `ks` is a fetched id and `h = get_heights(ks)["heights"][0]`.
+        assume `ks_ind` is a fetched id and `h = get_heights(ks_ind)["heights"][0]`.
     """
     if not term:
         return {"terms": sorted(_GLOSSARY)}

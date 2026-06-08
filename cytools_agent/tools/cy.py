@@ -28,6 +28,7 @@ import numpy as np
 
 # local imports
 from cytools_agent.tools.polytope import get_polytope
+from cytools_agent.tools._synonyms import forgive_kwargs
 
 # human-read
 class _ResultList(list):
@@ -82,10 +83,11 @@ def _as_heights(heights):
 
 
 # model-read (exposed in the run_python namespace)
+@forgive_kwargs
 def get_cy(ks_ind: str, heights: list[float] | dict | None = None):
     """The Calabi-Yau(s) from triangulating `ks_ind`. With no heights it uses a
     default star triangulation (one CY). Pass ONE height vector for that
-    triangulation's CY, or many (e.g. the get_heights(ks) result) to get a LIST
+    triangulation's CY, or many (e.g. the get_heights(ks_ind) result) to get a LIST
     of CYs, one per triangulation."""
     poly = get_polytope(ks_ind)
     if not poly.is_favorable(lattice="N"):
@@ -102,10 +104,10 @@ def get_cy(ks_ind: str, heights: list[float] | dict | None = None):
     # heights, triangulate picks default (Delaunay) heights.
     if heights is None:
         # flag the confusable case: this is ONE CY, not necessarily the only
-        print("[note: get_cy(ks) built ONE CY from a default triangulation; "
+        print("[note: get_cy(ks_ind) built ONE CY from a default triangulation; "
               "this polytope may admit several inequivalent CYs -- enumerate "
-              "them with get_heights(ks)['heights'], e.g. get_cy_info(ks, "
-              "get_heights(ks))]")
+              "them with get_heights(ks_ind)['heights'], e.g. get_cy_info(ks_ind, "
+              "get_heights(ks_ind))]")
         tri = poly.triangulate(make_star=True)
     else:
         tri = poly.triangulate(heights=heights, make_star=True)
@@ -176,6 +178,7 @@ def _cy_info_one(ks_ind, heights, t, cone):
 
 
 # model-read
+@forgive_kwargs
 def get_cy_info(ks_ind: str, heights: list[float] | dict | None = None,
                 t: list[float] | str | None = None,
                 cone: str = "Kcup") -> "_ResultList":
@@ -231,6 +234,7 @@ def get_cy_info(ks_ind: str, heights: list[float] | dict | None = None,
 
 
 # model-read
+@forgive_kwargs
 def get_cy_cones(ks_ind: str, heights: list[float] | dict | None = None,
                  cone: str = "Kcup") -> "_ResultList":
     """
