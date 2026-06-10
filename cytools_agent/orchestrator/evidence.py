@@ -92,14 +92,19 @@ def read_session(path=SESSION_PATH):
     return [json.loads(line) for line in open(path) if line.strip()]
 
 
-def render_evidence(path=EVIDENCE_PATH):
+def render_evidence(path=EVIDENCE_PATH, last=None):
     """The evidence as the text block shown to both agents (ground truth vs
-    claim is labelled; received_output is truncated to bound the prompt)."""
+    claim is labelled; received_output is truncated to bound the prompt).
+    last=N renders only the most recent N observations (older ones noted as
+    omitted) -- a lean view for the per-step dispatch, where the scratchpad
+    summary already carries accumulated state."""
     obs = read_evidence(path)
     if not obs:
         return "(evidence log is empty)"
+    shown = obs[-last:] if last else obs
+    start = len(obs) - len(shown)
     out = []
-    for i, o in enumerate(obs, 1):
+    for i, o in enumerate(shown, start + 1):
         recv = o.get("received_output", "")
         if len(recv) > _RENDER_CAP:
             recv = recv[:_RENDER_CAP] + " ...(truncated)"
@@ -109,9 +114,11 @@ def render_evidence(path=EVIDENCE_PATH):
             f"    received_output: {recv}\n"
             f"    interpretation: {o.get('interpretation') or '(none stated)'}"
         )
-    return "[Evidence log -- ran_code/received_output are ground truth; " \
-           "intent/interpretation are the engineer's claims]\n" + \
-           "\n".join(out)
+    head = "[Evidence log -- ran_code/received_output are ground truth; " \
+           "intent/interpretation are the engineer's claims]\n"
+    if start:
+        head += f"...({start} earlier observation(s) omitted)...\n"
+    return head + "\n".join(out)
 
 
 # archiving: keep every session (and its figures + a runnable replay)

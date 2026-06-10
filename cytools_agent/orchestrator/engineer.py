@@ -88,6 +88,39 @@ TOOL_CHEATSHEET = (
     "min(min(r['curve_volumes']) for r in result))."
 )
 
+# Lean variant for the A/B: just the signatures (the "do not guess" caveats are
+# now enforced by the tools' own feedback -- arg-order reminder, empty-fetch).
+LEAN_CHEATSHEET = (
+    "Callable signatures:\n"
+    "  fetch_polytopes(limit, h11, h21=None, favorable=None) -> list of ids\n"
+    "  ks_stats(h11, h21=None) -> {count, exists, h21_values}\n"
+    "  get_polytope_info(ks_ind) -> dict\n"
+    "  get_heights(ks_ind, n=None, kind='NTFE') -> {shape, heights}\n"
+    "  get_cy(ks_ind, heights=None) -> a CY (or a list for many heights)\n"
+    "  get_cy_info(ks_ind, heights=None, t=None, cone='Kcup') -> dict or list; "
+    "t='tip' adds cy_volume, curve_volumes, divisor_volumes\n"
+    "  get_cy_cones(ks_ind, heights=None, cone='Kcup') -> {mori_rays, "
+    "kahler_cone_hyperplanes}"
+)
+
+# A/B (CYTOOLS_MAP_TOOLS): harness-side iteration + plotting. The cheatsheet
+# must advertise them or the engineer cannot know they exist. (Defined AFTER
+# both cheatsheets -- this block appends to them.)
+_MAP_CHEAT = (
+    "\n  compute_for_each(ks_inds, {name: expression, ...}) -> evaluates each "
+    "expression once PER id (with ks_ind bound) and stores aligned lists named "
+    "`name` in the scratchpad. USE THIS instead of writing your own loop over "
+    "polytopes. Example: compute_for_each(ids, {'genus_max': "
+    "\"max(get_polytope_info(ks_ind)['genera_2face'])\"})\n"
+    "  make_plot(kind, x, y=None, xlabel='', ylabel='', title='') -> builds and "
+    "saves the figure from stored list NAMES (e.g. make_plot(kind='scatter', "
+    "x='tadpole', y='genus_max')). USE THIS instead of writing matplotlib code."
+)
+from cytools_agent.tools.mapping import MAP_TOOLS_ENABLED
+if MAP_TOOLS_ENABLED:
+    TOOL_CHEATSHEET += _MAP_CHEAT
+    LEAN_CHEATSHEET += _MAP_CHEAT
+
 # the engineer's one tool; hand-written so no dummy function is needed
 _ACT_SCHEMA = {
     "type": "function",
@@ -131,6 +164,15 @@ def _ollama_chat(model, messages, think, tools=None, as_json=False, label=""):
     call latency is visible. Returns the message dict."""
     payload = {"model": model, "stream": False, "think": think,
                "messages": messages}
+    # Ollama's vram-based default num_ctx (4096 here) SILENTLY truncates long
+    # prompts from the front -- measured: an 8k-token chat returned
+    # prompt_eval_count=4096 and the model lost the SYSTEM prompt. Late
+    # engineer steps overflow 4096, so the act protocol itself falls out of
+    # context. Default raised to 16384 (A/B-validated: removed all 600s
+    # grinds); override with CYTOOLS_NUM_CTX, 0 to use the server default.
+    num_ctx = int(os.environ.get("CYTOOLS_NUM_CTX", "16384") or 0)
+    if num_ctx:
+        payload["options"] = {"num_ctx": num_ctx}
     if tools:
         payload["tools"] = tools
     if as_json:
@@ -139,7 +181,9 @@ def _ollama_chat(model, messages, think, tools=None, as_json=False, label=""):
         OLLAMA_BASE + "/api/chat", json.dumps(payload).encode(),
         {"Content-Type": "application/json"})
     _t = time.monotonic()
-    with urllib.request.urlopen(req) as resp:
+    # a wedged Ollama call must not hang the session forever (eval_orch's
+    # SIGALRM only covers eval runs, not interactive sessions)
+    with urllib.request.urlopen(req, timeout=600) as resp:
         msg = json.loads(resp.read())["message"]
     emit("llm_call", label=label or "?", think=bool(think),
          s=round(time.monotonic() - _t, 2), n_msgs=len(messages),
@@ -183,6 +227,25 @@ def _parse_json(text):
     return {}
 
 
+# A/B (CYTOOLS_FINISH_FORGIVE): accept the finish signal where the model
+# actually puts it. Observed (qwen3:8b): the engineer completes a step, then
+# writes `answer = <result>` / `done = True` as PYTHON VARIABLES instead of
+# act-tool fields -- the same protocol-vs-scratchpad conflation as the fixed
+# run_python['done']=True illusion -- and the round dies at the step limit.
+# When the scratchpad holds an unambiguous finish (done is True, or an
+# `answer` variable was assigned), read it as the act fields. The same
+# grounded() gate still applies, so this cannot admit fabricated answers.
+FINISH_FORGIVE = bool(os.environ.get("CYTOOLS_FINISH_FORGIVE"))
+
+
+def _scratchpad_finish():
+    """The finish signal read from scratchpad variables: an assigned `answer`
+    is the result (assigning it IS the intent), `done=True` alone counts only
+    if an answer exists. Returns "" when neither is present."""
+    ans = _code._NS.get("answer")
+    return "" if ans is None else str(ans)
+
+
 # the act-protocol interpreter
 # ----------------------------
 def _scratchpad_run_python(code):
@@ -211,6 +274,11 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
     without finishing."""
     messages = [{"role": "system", "content": ENGINEER_SYSTEM},
                 {"role": "user", "content": prompt}]
+    # a stale finish variable from a previous round must not auto-finish this
+    # one with the OLD answer
+    if FINISH_FORGIVE:
+        _code._NS.pop("answer", None)
+        _code._NS.pop("done", None)
     pending = {"o": None}
     n0 = len(evidence)
     nags = 0
@@ -278,6 +346,14 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
             if done and answer and grounded(answer, evidence[n0:]):
                 interpret(answer)
                 return finish(answer, True)
+            # finish-forgiveness: the model put the result in a scratchpad
+            # `answer` variable instead of the act field -- unambiguous intent;
+            # the grounded() gate still applies
+            if FINISH_FORGIVE and not (done and answer):
+                sp_ans = _scratchpad_finish()
+                if sp_ans and grounded(sp_ans, evidence[n0:]):
+                    interpret(sp_ans)
+                    return finish(sp_ans, True)
             # loop-breaker: bucket literal/narration prints together so varying
             # the printed string can't dodge the check; stop a spinning round
             norm = "<noop-print>" if _is_noop_print(code) else \
@@ -292,9 +368,16 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
                            "actually computes the asked-for quantity (loop over "
                            "the fetched objects), or finish if you have it.")
                 continue
-            note = ("\n[your answer is not in this output; compute and print "
-                    "EXACTLY the answer before finishing]"
-                    if done and answer else "")
+            if done and answer:
+                note = ("\n[your answer is not in this output; compute and "
+                        "print EXACTLY the answer before finishing]")
+            elif "(no output" not in out:
+                # produced a real result but did NOT signal done -- remind it to
+                # finish, else a reasonable output just loops to the step limit
+                note = ("\n[if that is this step's result, FINISH: call act with "
+                        "done=true and answer set to it]")
+            else:
+                note = ""
             tool_reply(out + note)
             continue
 

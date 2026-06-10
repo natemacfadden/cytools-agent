@@ -75,6 +75,18 @@ def _ids(seq, h11=None, h21=None, favorable=None):
     return [_PolytopeId(s) for s in seq]
 
 
+# human-read
+class _InfoDict(dict):
+    """A result dict that, on a missing key, says which keys ARE available --
+    so a model guessing a field (info['vertices']) gets a pointed error naming
+    the real keys instead of a bare KeyError it has to .keys() its way out of."""
+
+    def __missing__(self, key):
+        raise KeyError(
+            f"'{key}' is not a field in this result. Available keys: "
+            f"{', '.join(self.keys())}.")
+
+
 _CACHE   = {} # ks_ind -> vertices (list[list[int]])
 _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool}; how much of each
               # query is known as a contiguous prefix (from index 0) in the
@@ -100,8 +112,11 @@ def _load_disk_cache():
         return
     _CACHE.update(d.get("cache", {}))
     for k, v in d.get("fetched", {}).items():
-        h11s, h21s = k.split(",")
-        _FETCHED[(int(h11s), int(h21s) if h21s else None)] = v
+        try:                       # a malformed/corrupt entry must not break import
+            h11s, h21s = k.split(",")
+            _FETCHED[(int(h11s), int(h21s) if h21s else None)] = v
+        except (ValueError, TypeError):
+            continue
 
 
 # human-read
@@ -306,7 +321,7 @@ def get_polytope_info(ks_ind: str) -> dict:
     """
     p = get_polytope(ks_ind)
     h11, h21 = int(p.h11(lattice="N")), int(p.h21(lattice="N"))
-    return {
+    return _InfoDict({
         "h11": h11,
         "h21": h21,
         "euler_characteristic": 2 * (h11 - h21),
@@ -322,7 +337,7 @@ def get_polytope_info(ks_ind: str) -> dict:
         "facedim_to_nfaces": {
             d: len(p.faces(d)) for d in range(p.dim() + 1)
         },
-    }
+    })
 
 # human-read
 def _n_rigid_divisors(p: cytools.Polytope) -> int:

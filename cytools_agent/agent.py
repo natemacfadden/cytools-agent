@@ -112,13 +112,19 @@ class Agent:
             if extra:
                 user_message = f"{user_message}\n\n{extra}"
         self.messages.append({"role": "user", "content": user_message})
+        self._empty_nudges = 0
         for step in range(self.max_steps):
             _t = time.monotonic()
             msg = self.client.chat.completions.create(
                 model=self.model, messages=self.messages, tools=self.tools
             ).choices[0].message
             self.timing["model"] += time.monotonic() - _t
-            self.messages.append(msg)
+            # normalize to a plain dict so history holds one type (the SDK
+            # object's shape varies across versions; save_history and replay
+            # then need no dual-type handling)
+            self.messages.append(
+                msg.model_dump(exclude_none=True)
+                if hasattr(msg, "model_dump") else msg)
 
             if msg.tool_calls:
                 if self.verbosity == 1:
@@ -166,7 +172,20 @@ class Agent:
                 elif self.verbosity >= 2:
                     print(f"Agent: Text message `{msg}`")
 
-                return _strip_template_tags(msg.content)
+                final = _strip_template_tags(msg.content or "")
+                if not final.strip():
+                    # newer Ollama builds put qwen3's thinking in a separate
+                    # `reasoning` field and may leave content EMPTY; an empty
+                    # final answer is never right, so nudge instead of
+                    # returning it (bounded: two nudges per turn)
+                    if self._empty_nudges < 2:
+                        self._empty_nudges += 1
+                        self.messages.append({"role": "user", "content":
+                            "Your last message was empty. Continue: either "
+                            "call a tool, or state the final answer with the "
+                            "concrete numbers."})
+                        continue
+                return final
 
             for call_id, name, args in calls:
                 _t = time.monotonic()

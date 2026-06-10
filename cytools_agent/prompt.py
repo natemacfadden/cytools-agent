@@ -52,3 +52,15 @@ DEFAULT_SYSTEM_PROMPT = (
     "Call one tool at a time and wait for its result. "
     "Reuse earlier results; never re-call a tool with the same arguments."
 )
+
+# A/B (CYTOOLS_MAP_TOOLS): when the harness-side iteration tools are enabled,
+# reroute the "question over MANY items" case to them (the tool schemas alone
+# don't tell the model they replace hand-written loops).
+import os as _os
+if _os.environ.get("CYTOOLS_MAP_TOOLS"):
+    DEFAULT_SYSTEM_PROMPT += (
+        " For a per-polytope quantity across many polytopes, do NOT write "
+        "your own loop: call compute_for_each(ids, {name: one-item "
+        "expression}) to get aligned lists, then reduce them in run_python "
+        "(e.g. print(np.mean(name))) or plot them with make_plot."
+    )

@@ -46,10 +46,13 @@ except ImportError:
 # local imports
 from cytools_agent.tools import polytope, triangulation, cy
 
-# persistent namespace: raw cytools + trusted tool functions
+# persistent namespace: raw cytools + trusted tool functions. numpy (np),
+# matplotlib.pyplot (plt) and the raw cytools library are preloaded too -- the
+# engineer needs them for arrays, plots, and anything the tools don't cover.
 _NS = {
     "cytools": cytools,
     "np": np,
+    "plt": plt,
     "Polytope": cytools.Polytope,
     "get_polytope": polytope.get_polytope,
     "fetch_polytopes": polytope.fetch_polytopes,
@@ -67,11 +70,21 @@ _NS = {
 # (and be callable), so we enable the behavior instead of erroring on it. We
 # skip names already in sys.modules, so real modules (e.g. cytools) are never
 # shadowed.
+# KNOWN HAZARD: sys.modules now holds non-module objects, which can confuse
+# third-party code that iterates it expecting modules (inspect.getmodule,
+# importlib.reload, some pytest collection paths). Scoped to this process and
+# accepted; if a library trips on it, filter with inspect.ismodule.
 for _name, _obj in _NS.items():
     if _name not in sys.modules:
         sys.modules[_name] = _obj
 
 _PRELOADED = list(_NS)   # tool names, captured before run_python adds vars
+# the curated CALLABLE tools to steer the model to -- NOT the raw `cytools`
+# module / `np` / `plt` / `Polytope` (telling it to "call cytools" sends it to
+# the raw library, e.g. cytools.fetch_polytopes() with its misleading 1000
+# default). np/plt/cytools are still available; they're mentioned separately.
+_TOOL_NAMES = [n for n in _PRELOADED
+               if n not in ("cytools", "np", "plt", "Polytope")]
 
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
 _FIG_DIR = os.environ.get("CYTOOLS_AGENT_FIG_DIR", "scratch")   # sandboxable
@@ -101,6 +114,17 @@ def reset_figures():
     _fig_count = 0
     for f in glob.glob(os.path.join(_FIG_DIR, "fig_*.png")):
         os.remove(f)
+
+
+# human-read
+def reset_namespace():
+    """Clear user-added variables from the persistent run_python scratchpad, so
+    each session starts CLEAN. The namespace (_NS) is module-global, so without
+    this a variable from one session (e.g. polytope_ids) leaks into the next --
+    corrupting multi-run processes like the eval harness. Preloaded tools and
+    modules (captured in _PRELOADED) are kept."""
+    for name in [n for n in _NS if n not in _PRELOADED]:
+        del _NS[name]
 
 
 # human-read
@@ -166,8 +190,9 @@ def run_python(code: str) -> str:
     Execute Python in a persistent session and return its stdout.
 
     The namespace persists across calls, so variables and imports from earlier
-    calls remain available. Preloaded: `cytools`, `np`, `Polytope`, the trusted
-    tool functions (`fetch_polytopes`, `get_polytope_info`,
+    calls remain available. Preloaded (no import needed): `np` (numpy), `plt`
+    (matplotlib.pyplot, for plots), `cytools`, `Polytope`, the trusted tool
+    functions (`fetch_polytopes`, `get_polytope_info`,
     `get_heights`, `get_triangulation_info`, `get_cy_info`,
     `get_cy_cones`), and `get_polytope(ks_ind)` /
     `get_cy(ks_ind, heights)` for raw objects
@@ -220,13 +245,18 @@ def run_python(code: str) -> str:
         if isinstance(e, ImportError) or (isinstance(e, NameError)
                                           and missing in _PRELOADED):
             # the tools are preloaded, not importable modules: a model that
-            # writes `import get_cy_info` (or references one) hits this
+            # writes `import CYTools` / `import get_cy_info` hits this. Point it
+            # at the CURATED tools (NOT the raw `cytools` module, which would
+            # send it to cytools.fetch_polytopes() and the misleading default).
             out += ("\n[these tools are already available here -- call them "
-                    "directly, no import: " + ", ".join(_PRELOADED) + "]")
+                    "directly, no import: " + ", ".join(_TOOL_NAMES) + ". Also "
+                    "preloaded: np (numpy), plt (matplotlib.pyplot, for plots), "
+                    "and the raw cytools library for anything the tools above "
+                    "don't cover.]")
         elif isinstance(e, NameError):
             # a near-miss for a real tool name (e.g. get_polytopes ->
             # fetch_polytopes) -- point to it; the model's intent is clear
-            near = difflib.get_close_matches(missing or "", _PRELOADED, n=2,
+            near = difflib.get_close_matches(missing or "", _TOOL_NAMES, n=2,
                                              cutoff=0.6)
             if near:
                 out += (f"\n[no {missing!r} here -- did you mean: "

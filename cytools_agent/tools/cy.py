@@ -27,7 +27,7 @@
 import numpy as np
 
 # local imports
-from cytools_agent.tools.polytope import get_polytope
+from cytools_agent.tools.polytope import get_polytope, _InfoDict
 from cytools_agent.tools._synonyms import forgive_kwargs
 
 # human-read
@@ -141,7 +141,7 @@ def _cy_info_one(ks_ind, heights, t, cone):
     get_cy_info wraps this in a _ResultList. See get_cy_info's docstring."""
     cy = get_cy(ks_ind, heights)
     dok = cy.intersection_numbers(in_basis=True, format="dok")
-    info = {
+    info = _InfoDict({
         "h11": int(cy.h11()),
         "h21": int(cy.h21()),
         "euler_characteristic": int(2 * (cy.h11() - cy.h21())),
@@ -149,7 +149,7 @@ def _cy_info_one(ks_ind, heights, t, cone):
         "intersection_numbers": [[*map(int, k), int(round(v))]
                                  for k, v in dok.items()],
         "n_prime_toric_divisors": len(cy.prime_toric_divisors()),
-    }
+    })
     if t is None:
         return info
 
@@ -281,4 +281,5 @@ def _cy_cones_one(ks_ind, heights, cone):
     """Cone data for ONE triangulation; get_cy_cones wraps this."""
     mori = _mori_cone(get_cy(ks_ind, heights), cone)
     rays = mori.rays().tolist()
-    return {"cone": cone, "mori_rays": rays, "kahler_cone_hyperplanes": rays}
+    return _InfoDict({"cone": cone, "mori_rays": rays,
+                      "kahler_cone_hyperplanes": rays})

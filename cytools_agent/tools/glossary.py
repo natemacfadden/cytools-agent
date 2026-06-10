@@ -294,12 +294,16 @@ _SCAN_SKIP = {"favorable", "facet", "fine", "regular", "star"}
 
 
 # human-read
-def glossary_context(message: str, max_terms: int = 4) -> str:
+def glossary_context(message: str, max_terms: int = 4,
+                     recipe_only: bool = False) -> str:
     """Scan a message for glossary terms (as whole-token phrases) and return
     their definitions + recipes as a context block, or "" if none. The harness
     appends this to a user message so the model gets the translation without
     having to recognize it should look the term up. Conservative by design:
-    when it misses a term, the cy_glossary tool is the backup."""
+    when it misses a term, the cy_glossary tool is the backup.
+
+    recipe_only=True returns just the recipes (no paragraph definitions) -- a
+    lean view for the ENGINEER, which needs the code pattern, not the prose."""
     mtoks = _norm(message).split()
 
     def _has(seq):
@@ -317,9 +321,15 @@ def glossary_context(message: str, max_terms: int = 4) -> str:
     keys = sorted(matched, key=lambda k: -matched[k])[:max_terms]
     if not keys:
         return ""
-    lines = ["(CYTools glossary -- terms detected in this request, with the "
-             "recipe to use:)"]
-    for k in keys:
-        definition, recipe, _syns = _GLOSSARY[k]
-        lines.append(f"- {k}: {definition} Recipe: {recipe}")
+    if recipe_only:
+        lines = ["(recipes for terms in this step:)"]
+        for k in keys:
+            _d, recipe, _s = _GLOSSARY[k]
+            lines.append(f"- {k}: {recipe}")
+    else:
+        lines = ["(CYTools glossary -- terms detected in this request, with the "
+                 "recipe to use:)"]
+        for k in keys:
+            definition, recipe, _syns = _GLOSSARY[k]
+            lines.append(f"- {k}: {definition} Recipe: {recipe}")
     return "\n".join(lines)

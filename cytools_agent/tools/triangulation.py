@@ -24,7 +24,7 @@
 import cytools
 
 # local imports
-from cytools_agent.tools.polytope import get_polytope
+from cytools_agent.tools.polytope import get_polytope, _InfoDict
 from cytools_agent.tools.cy import _as_heights
 from cytools_agent.tools._synonyms import forgive_kwargs
 
@@ -51,13 +51,32 @@ def _triangulation_difficulty(poly: cytools.Polytope) -> tuple[float, str]:
         return 1, "too large"
 
 # human-read
+class _HeightsDict(dict):
+    """The get_heights result: {"shape", "heights"} that ALSO answers integer
+    indexing/iteration like the underlying list -- result[0] is the first
+    height vector (the model's unambiguous intent; older corpus code too), and
+    a missing string key gets a pointed error naming the real keys."""
+
+    def __getitem__(self, key):
+        if isinstance(key, (int, slice)):
+            return self["heights"][key]
+        return super().__getitem__(key)
+
+    def __missing__(self, key):
+        raise KeyError(
+            f"'{key}' is not a field of the get_heights result. It has "
+            f"'shape' ([n_triangulations, n_points]) and 'heights' (the list "
+            f"of height vectors); result[i] also gives heights[i].")
+
+
+# human-read
 def _shaped(heights: list[list[float]]) -> dict:
     """Wrap a list of height vectors with its shape, so callers read the count
     from `shape[0]` instead of counting the vectors."""
-    return {
+    return _HeightsDict({
         "shape": [len(heights), len(heights[0]) if heights else 0],
         "heights": heights,
-    }
+    })
 
 # model-read
 @forgive_kwargs
@@ -156,11 +175,11 @@ def get_triangulation_info(ks_ind: str, heights: list[float]) -> dict:
     p = get_polytope(ks_ind)
     t = p.triangulate(heights=heights, make_star=True)
 
-    return {
+    return _InfoDict({
         "is_valid": t.is_valid(),
         "is_fine": t.is_fine(),
         "is_regular": t.is_regular(),
         "is_star": t.is_star(),
         "hash": hash(t),
         "n_simplices": len(t.simplices())
-    }
+    })

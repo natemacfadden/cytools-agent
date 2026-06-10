@@ -80,20 +80,25 @@ def _claimed_ints(text):
     return claims
 
 
-def hit(text, ans):
-    """Does the ground-truth value appear in the answer text?"""
+def hit(text, ans, raw=False):
+    """Does the ground-truth value appear in the answer text? raw=True is for
+    matching against tool OUTPUT rather than prose: the _claimed_ints shortcut
+    (which trusts "answer:/count:/**N**" markers) is skipped, since raw output
+    has no such rhetoric and the markers misfire on it."""
     t = text.lower()
     if isinstance(ans, bool):
         return (bool(re.search(r"\byes\b|\btrue\b", t)) if ans
                 else bool(re.search(r"\bno\b|\bfalse\b|\bnot\b|non-", t)))
     if isinstance(ans, int):
-        claims = _claimed_ints(text)
+        claims = None if raw else _claimed_ints(text)
         if claims:                                  # explicit "answer: N"/**N**
             return str(ans) in claims
-        # else: a standalone integer (not inside a longer number, and not part
-        # of a domain term like 2-face / h11=4) in the de-noised text
+        # else: a standalone integer (not inside a longer number, and -- in
+        # prose -- not part of a domain term like 2-face / h11=4; raw tool
+        # output legitimately contains tuples, so it is not de-noised)
         return bool(re.search(rf"(?<!\d){re.escape(str(ans))}(?!\d)",
-                              re.sub(r",", "", _denoise(text))))
+                              re.sub(r",", "", text if raw
+                                     else _denoise(text))))
     if isinstance(ans, float):
         return any(f"{round(ans, d)}" in text for d in (1, 2, 3, 4, 6))
     if isinstance(ans, (list, tuple)):
@@ -104,7 +109,7 @@ def hit(text, ans):
         # whole answer -- so e.g. "12 simplices" can't satisfy a [1,...,2,...]
         # truth just because the digits 1 and 2 appear somewhere
         target = sorted(round(float(e), 3) for e in _flat(ans))
-        nums, w = _nums(_denoise(text)), len(target)
+        nums, w = _nums(text if raw else _denoise(text)), len(target)
         return any(sorted(nums[i:i + w]) == target
                    for i in range(len(nums) - w + 1))
     return str(ans).lower() in t

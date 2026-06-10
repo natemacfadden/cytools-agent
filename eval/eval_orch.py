@@ -40,14 +40,15 @@ import time
 
 # local imports
 from cytools_agent.orchestrator import run_session, read_evidence, read_session
-from eval.grading import grade
+from cytools_agent.orchestrator.evidence import _prints_only_literals
+from eval.grading import grade, hit
 
 
 CORPUS = os.path.join(os.path.dirname(__file__), "pm_corpus.jsonl")
 
 
-def _rows():
-    return [json.loads(line) for line in open(CORPUS)]
+def _rows(corpus=None):
+    return [json.loads(line) for line in open(corpus or CORPUS)]
 
 
 class _TimedOut(BaseException):
@@ -80,6 +81,20 @@ def _diagnostics(session, evidence):
             "max_step_repeat": max_repeat, "n_tracebacks": n_err}
 
 
+def evidence_grade(truth, evidence):
+    """Grade against the harness-captured ground truth instead of the PM's
+    prose: PASS iff the truth value appears in the received_output of an
+    observation whose code actually computed (not a typed literal). Immune to
+    the two observed prose-grader failure modes -- truth digits colliding with
+    jargon in the summary, and the PM paraphrasing away the number."""
+    for o in evidence:
+        if _prints_only_literals(o.get("ran_code", "")):
+            continue
+        if hit(str(o.get("received_output", "")), truth, raw=True):
+            return "PASS"
+    return "FAIL"
+
+
 def run_one(row, model, timeout):
     signal.alarm(timeout)
     t0 = time.monotonic()
@@ -92,15 +107,21 @@ def run_one(row, model, timeout):
     finally:
         signal.alarm(0)
     dt = time.monotonic() - t0
-    diag = _diagnostics(read_session(), read_evidence())
+    ev = read_evidence()
+    diag = _diagnostics(read_session(), ev)
     status = "TIMEOUT" if timed_out else grade(answer, row["answer"])
     # honest bar: a run that did not finish (step limit / walk stopped) is not a
     # PASS even if the truth digit happens to appear in the PM's prose
     if status == "PASS" and diag["step_failed"]:
         status = "FAIL"
+    # parallel evidence-based grade (truth must appear in a COMPUTED output);
+    # reported alongside prose status to measure grader disagreement
+    ev_status = "TIMEOUT" if timed_out else evidence_grade(row["answer"], ev)
+    if ev_status == "PASS" and diag["step_failed"]:
+        ev_status = "FAIL"
     return {"id": row["id"], "kind": row["kind"], "status": status,
-            "secs": round(dt, 1), "answer": answer, "truth": row["answer"],
-            **diag}
+            "status_evidence": ev_status, "secs": round(dt, 1),
+            "answer": answer, "truth": row["answer"], **diag}
 
 
 def main():
@@ -108,37 +129,51 @@ def main():
     model = args[args.index("--model") + 1] if "--model" in args else "qwen3:4b"
     timeout = int(args[args.index("--timeout") + 1]) \
         if "--timeout" in args else 600
-    rows = {r["id"]: r for r in _rows()}
+    reps = int(args[args.index("--reps") + 1]) if "--reps" in args else 1
+    corpus = args[args.index("--corpus") + 1] if "--corpus" in args else None
+    rows = {r["id"]: r for r in _rows(corpus)}
     ids = ([int(x) for x in args[args.index("--ids") + 1].split(",")]
            if "--ids" in args else sorted(rows))
 
-    print(f"###### orchestrator eval ({model}) on ids {ids} ######", flush=True)
+    print(f"###### orchestrator eval ({model}) ids {ids} x{reps} reps ######",
+          flush=True)
     results = []
     for i in ids:
-        r = run_one(rows[i], model, timeout)
-        results.append(r)
-        flags = []
-        if r["step_failed"]:
-            flags.append("STEP-FAILED")
-        if r["off_step"]:
-            flags.append(f"off-step×{r['off_step']}")
-        if r["max_step_repeat"] >= 3:
-            flags.append(f"loop×{r['max_step_repeat']}")
-        if r["n_tracebacks"]:
-            flags.append(f"errs={r['n_tracebacks']}")
-        print(f"\n[{i}] {r['kind']}  {r['status']}  "
-              f"({r['secs']}s, {r['rounds']}r/{r['n_obs']}obs)"
-              + ("  " + " ".join(flags) if flags else ""), flush=True)
-        print(f"    truth: {r['truth']}", flush=True)
-        print(f"    got:   {str(r['answer'])[:160]}", flush=True)
+        for rep in range(reps):
+            r = run_one(rows[i], model, timeout)
+            r["rep"] = rep
+            results.append(r)
+            flags = []
+            if r["step_failed"]:
+                flags.append("STEP-FAILED")
+            if r["off_step"]:
+                flags.append(f"off-step×{r['off_step']}")
+            if r["max_step_repeat"] >= 3:
+                flags.append(f"loop×{r['max_step_repeat']}")
+            if r["n_tracebacks"]:
+                flags.append(f"errs={r['n_tracebacks']}")
+            print(f"\n[{i}.{rep}] {r['kind']}  {r['status']}  "
+                  f"({r['secs']}s, {r['rounds']}r/{r['n_obs']}obs)"
+                  + ("  " + " ".join(flags) if flags else ""), flush=True)
+            print(f"    truth: {r['truth']}", flush=True)
+            print(f"    got:   {str(r['answer'])[:150]}", flush=True)
+            # incremental dump so a long run is monitorable mid-flight
+            with open(os.path.join("scratch", "eval_orch_last.json"), "w") as f:
+                json.dump(results, f, indent=2)
 
+    print("\n###### per-id (pass/reps) ######", flush=True)
+    for i in ids:
+        rs = [r for r in results if r["id"] == i]
+        p = sum(r["status"] == "PASS" for r in rs)
+        to = sum(r["status"] == "TIMEOUT" for r in rs)
+        # timeouts are inconclusive, so they are excluded from the scored
+        # denominator (consistent with grading._summary)
+        print(f"  id{i:<2} {rs[0]['kind']:28s} {p}/{len(rs) - to} scored pass"
+              + (f", {to} timeout" if to else ""), flush=True)
     npass = sum(r["status"] == "PASS" for r in results)
     nto = sum(r["status"] == "TIMEOUT" for r in results)
-    print(f"\n###### {npass}/{len(results)} pass, {nto} timeout ######",
+    print(f"\n###### TOTAL {npass}/{len(results)} pass, {nto} timeout ######",
           flush=True)
-    # machine-readable dump for later analysis
-    with open(os.path.join("scratch", "eval_orch_last.json"), "w") as f:
-        json.dump(results, f, indent=2)
 
 
 if __name__ == "__main__":

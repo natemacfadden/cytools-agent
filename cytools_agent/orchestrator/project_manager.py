@@ -27,12 +27,14 @@
 
 # external imports
 import json
+import os
 import time
 
 # local imports
 from cytools_agent.tools import code as _code
 from cytools_agent.tools.glossary import glossary_context
-from cytools_agent.orchestrator.engineer import (TOOL_CHEATSHEET, _ollama_chat,
+from cytools_agent.orchestrator.engineer import (TOOL_CHEATSHEET,
+                                                 LEAN_CHEATSHEET, _ollama_chat,
                                                  _parse_json, run_engineer)
 from cytools_agent.orchestrator.evidence import (emit, render_evidence,
                                                  reset_evidence, reset_session,
@@ -51,11 +53,34 @@ PM_SYSTEM = (
 _PLOT_WORDS = ("plot", "scatter", "graph", "chart", "histogram")
 
 
+# A plan step is a STRUCTURED {"do": action, "produce": output} dict. _step_text
+# renders one for display/matching/glossary (and tolerates a plain string).
+def _step_text(step):
+    if isinstance(step, dict):
+        do, prod = step.get("do", ""), step.get("produce", "")
+        return f"{do} (produce: {prod})" if prod else do
+    return str(step)
+
+
+def _coerce_steps(todo):
+    """Normalize the model's todo into a list of {do, produce} dicts -- tolerant
+    of a step given as a bare string."""
+    out = []
+    for s in todo if isinstance(todo, list) else []:
+        if isinstance(s, dict) and str(s.get("do", "")).strip():
+            out.append({"do": str(s.get("do", "")).strip(),
+                        "produce": str(s.get("produce", "")).strip()})
+        elif isinstance(s, str) and s.strip():
+            out.append({"do": s.strip(), "produce": ""})
+    return out
+
+
 def _plan_covers(direct, todo):
     """The plan must reach the deliverable. We check the plot case explicitly
     -- it is the end-step the model most often drops."""
     if any(w in direct.lower() for w in _PLOT_WORDS):
-        return any(any(w in s.lower() for w in _PLOT_WORDS) for s in todo)
+        return any(any(w in _step_text(s).lower() for w in _PLOT_WORDS)
+                   for s in todo)
     return True
 
 
@@ -63,20 +88,37 @@ def _ensure_deliverable(direct, todo):
     """Safety net: append the deliverable step if the plan dropped it."""
     if any(w in direct.lower() for w in _PLOT_WORDS) \
             and not _plan_covers(direct, todo):
-        return list(todo) + ["make the requested plot of the results"]
+        return list(todo) + [{"do": "make the requested plot of the results",
+                              "produce": "a saved plot"}]
     return todo
 
 
-def _force_two_steps(direct):
+def _force_two_steps():
     """Last-resort >=2-step plan when the model refuses to decompose: a compute
-    step (build the values) and a deliverable step -- so the engineer never
-    faces the whole task at once."""
+    step and a deliverable step -- CLEAN and generic, never embedding the raw
+    (possibly garbled) restatement -- so the engineer never faces the whole task
+    at once and never reads a verbose blob."""
     return [
-        f"compute the values the task needs -- output: the numbers/lists to be "
-        f"summarized, for: {direct}",
-        f"produce the requested final result/plot from those values -- output: "
-        f"the deliverable, for: {direct}",
+        {"do": "compute the values the deliverable needs",
+         "produce": "the per-item numbers/lists to be summarized"},
+        {"do": "produce the requested final result or plot from those values",
+         "produce": "the deliverable (the plot, or the final number)"},
     ]
+
+
+def _produce_met(step, observations):
+    """Programmatic produce-check: verify the step actually made its declared
+    output. Enforces the concrete, high-value case -- a step whose deliverable
+    is a PLOT must really save a figure (the '[saved ... figure(s)]' marker is
+    unfakable). Returns (met, reason)."""
+    text = _step_text(step).lower()
+    if any(w in text for w in _PLOT_WORDS):
+        saved = any("[saved " in str(o.get("received_output", ""))
+                    for o in observations)
+        if not saved:
+            return False, ("the deliverable is a plot but no figure was saved "
+                           "-- build it with plt (figures auto-save)")
+    return True, ""
 
 
 class ProjectManager:
@@ -124,36 +166,38 @@ class ProjectManager:
         model still won't comply it is forced into a 2-step compute+deliverable
         plan (never a single step). Uses plan_think (decomposition reasons)."""
         instruction = (
-            "Break the work into AT LEAST 2 concrete steps for the engineer, "
-            "covering the task end to end (never put the whole task in one "
-            "item, and never include a step that computes nothing). For EACH "
-            "step state BOTH the action AND its explicit OUTPUT -- the concrete "
-            "data it produces, described with meaning: e.g. 'output: a list of "
-            "numbers, each the largest curve volume of one polytope', or "
-            "'output: a single integer = the count', or 'output: a saved "
-            "scatter plot of X vs Y'. Each step's output feeds the next; the "
-            "LAST step's output IS the requested deliverable (the plot, or the "
-            "final number). You MAY name a function as a hint (e.g. "
-            "get_cy_info) but NEVER with arguments. Example for 'scatter the "
-            "number of prime toric divisors vs the Euler characteristic for "
-            "h11=3 polytopes': todo = [\"fetch the h11=3 polytopes -- output: "
-            "a list of polytope ids\", \"for each polytope compute its prime-"
-            "toric-divisor count and Euler characteristic -- output: two lists "
-            "of numbers, one value per polytope\", \"scatter the two lists -- "
-            "output: a saved scatter plot\"]. Reply as JSON {\"todo\": "
-            "[\"step -- output: ...\", ...]}.")
+            "Break the work into AT LEAST 2 concrete steps, covering the task "
+            "end to end (never the whole task in one item, never a step that "
+            "computes nothing). Each step is an object with TWO fields: \"do\" "
+            "(ONE action) and \"produce\" (EXACTLY ONE concrete output, "
+            "described with meaning -- e.g. 'a list of integers, one NTFE count "
+            "per polytope', 'a single number = the mean', or 'a saved "
+            "histogram'). ONE output per step: if the task has SEVERAL "
+            "deliverables (e.g. a number AND a plot), make EACH its own step -- "
+            "never combine them. (But DO combine the per-item computations that "
+            "feed the SAME output into a single step.) Each step's produce feeds "
+            "the next; the LAST step produces the final deliverable. You MAY "
+            "name a function as a hint (e.g. get_cy_info) but NEVER with "
+            "arguments, and do NOT invent function names. Example for 'histogram "
+            "the NTFE triangulation counts of h11=3 polytopes and report the "
+            "mean': {\"todo\": [{\"do\": \"fetch the h11=3 polytopes\", "
+            "\"produce\": \"a list of polytope ids\"}, {\"do\": \"for each "
+            "polytope get its NTFE triangulation count\", \"produce\": \"a list "
+            "of integer counts, one per polytope\"}, {\"do\": \"compute the mean "
+            "of the counts\", \"produce\": \"a single number = the mean\"}, "
+            "{\"do\": \"histogram the counts\", \"produce\": \"a saved "
+            "histogram\"}]}. Reply as JSON {\"todo\": [{\"do\": \"...\", "
+            "\"produce\": \"...\"}, ...]}.")
         todo = []
         for _ in range(3):     # reject incomplete / single-step plans; retry
-            todo = self._json(instruction, direct_speech,
-                              think=self.plan_think,
-                              label="PM.plan").get("todo", [])
-            if isinstance(todo, list) and len(todo) >= 2 \
-                    and _plan_covers(direct_speech, todo):
+            raw = self._json(instruction, direct_speech,
+                             think=self.plan_think, label="PM.plan").get("todo")
+            todo = _coerce_steps(raw)
+            if len(todo) >= 2 and _plan_covers(direct_speech, todo):
                 return todo
-        # enforce >=2 even when the model won't decompose: split into a
-        # compute step and a deliverable step rather than dumping the whole task
-        if not (isinstance(todo, list) and len(todo) >= 2):
-            todo = _force_two_steps(direct_speech)
+        # enforce >=2 even when the model won't decompose: a clean generic split
+        if len(todo) < 2:
+            todo = _force_two_steps()
         return _ensure_deliverable(direct_speech, todo)
 
     def addresses(self, step, observations):
@@ -179,9 +223,34 @@ class ProjectManager:
             "a DIFFERENT step or computes a clearly "
             'unrelated quantity; when in doubt, true. Reply JSON '
             '{"addresses": true|false}.',
-            f"STEP:\n{step}\n\nENGINEER WORK:\n{work}", think=False,
+            f"STEP:\n{_step_text(step)}\n\nENGINEER WORK:\n{work}", think=False,
             label="PM.addresses")
         return bool(out.get("addresses", True))
+
+    def verify_produce(self, step, observations):
+        """VERIFY #2: did the work actually PRODUCE the step's declared output,
+        with the right TYPE and SHAPE? Catches a clear mismatch -- e.g. a single
+        number reported when 'a list, one value per polytope' was required (the
+        recurring len(info) bug). Lenient on cosmetics; returns (produced,
+        issue). A malformed reply defaults to produced=True (never blocks)."""
+        produce = step.get("produce", "") if isinstance(step, dict) else ""
+        if not observations or not produce:
+            return True, ""
+        work = "\n".join(
+            f"- code: {o.get('ran_code', '')}\n  output: "
+            f"{str(o.get('received_output', ''))[:160]}"
+            for o in observations[-4:])
+        out = self._json(
+            "The step had to PRODUCE this output: \"" + produce + "\". From the "
+            "engineer's code+outputs, did it actually produce THAT -- the right "
+            "TYPE and SHAPE? Answer false ONLY for a clear type/shape mismatch "
+            "(e.g. a single number when a list with one value per item was "
+            "required, or a missing collection); cosmetic differences are fine "
+            "and when in doubt answer true. Reply JSON {\"produced\": "
+            "true|false, \"issue\": \"<the mismatch, else empty>\"}.",
+            f"REQUIRED OUTPUT: {produce}\n\nENGINEER WORK:\n{work}",
+            think=False, label="PM.verify_produce")
+        return bool(out.get("produced", True)), str(out.get("issue") or "").strip()
 
     def summarize(self, direct_speech, evidence, completed=True):
         """Compose the final user answer from the evidence. If the run did NOT
@@ -197,6 +266,20 @@ class ProjectManager:
             ' Reply as JSON {"message": "..."}.',
             f"Request:\n{direct_speech}\n\n{evidence}", label="PM.summarize")
         return out.get("message") or "(done)"
+
+    def verify_answer(self, question, answer):
+        """Cross-check the final answer against the ORIGINAL request: does it
+        actually deliver everything asked (e.g. a question wanting a plot AND a
+        number got both)? Returns (complete, missing). Lenient: a malformed
+        reply defaults to complete, so it never blocks a good answer."""
+        out = self._json(
+            "Check whether the ANSWER delivers everything the REQUEST asked "
+            "for -- every distinct deliverable (e.g. a plot AND a number). "
+            "Reply JSON {\"complete\": true|false, \"missing\": \"<the "
+            "deliverable(s) not provided, else empty>\"}.",
+            f"REQUEST:\n{question}\n\nANSWER:\n{answer}", think=False,
+            label="PM.verify")
+        return bool(out.get("complete", True)), str(out.get("missing") or "").strip()
 
 
 # the session loop -- the conductor
@@ -215,7 +298,9 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     stamp = int(time.time())
     reset_evidence()
     reset_session()
-    _code.reset_figures()   # so this run archives only the figures it makes
+    _code.reset_figures()      # so this run archives only the figures it makes
+    _code.reset_namespace()    # clear the scratchpad so vars (e.g. polytope_ids)
+                               # don't leak in from a prior session in this proc
     emit("question", text=user_message)
     pm = ProjectManager(model, think=pm_think, plan_think=plan_think)
     evidence = []   # cumulative across rounds; streamed to the file live
@@ -227,18 +312,37 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     emit("active", who="PM", phase="planning")
     todo = pm.plan(direct)
     log("[PM plan]", json.dumps(todo, indent=2))
-    emit("plan", todo=todo)
+    emit("plan", todo=[_step_text(s) for s in todo])
 
     rnd = [0]
+    walk = todo[:max_rounds]
+    n_steps = len(walk)
 
-    def dispatch(step):
+    def dispatch(step, idx):
         rnd[0] += 1
-        log(f"[dispatch -- round {rnd[0]}]", step)
-        emit("dispatch", round=rnd[0], task=step, plan=todo)
-        gloss = glossary_context(step) or ""
-        prompt = (f"{TOOL_CHEATSHEET}\n\n{render_evidence()}\n\n"
+        do = step["do"] if isinstance(step, dict) else str(step)
+        produce = step.get("produce", "") if isinstance(step, dict) else ""
+        step_str = _step_text(step)
+        log(f"[dispatch -- round {rnd[0]}]", step_str)
+        emit("dispatch", round=rnd[0], task=step_str,
+             plan=[_step_text(s) for s in todo])
+        # A/B (CYTOOLS_LEAN_PROMPT): lean trims the per-turn scaffolding so the
+        # signal (step + recipe) isn't buried -- condensed cheatsheet, recipe-
+        # only glossary, and only the last few observations.
+        lean = bool(os.environ.get("CYTOOLS_LEAN_PROMPT"))
+        cheatsheet = LEAN_CHEATSHEET if lean else TOOL_CHEATSHEET
+        gloss = glossary_context(step_str, recipe_only=lean) or ""
+        ev = render_evidence(last=3) if lean else render_evidence()
+        # STANDARDIZED dispatch: a fixed form built from the SELF-CONTAINED
+        # structured step (DO / PRODUCE). No overall GOAL -- showing the whole
+        # question made the engineer overshoot the step (solve everything, then
+        # get flagged off-step) and just added text; the {do, produce} step
+        # carries what this step needs.
+        prompt = (f"{cheatsheet}\n\n{ev}\n\n"
                   f"[variables already in the scratchpad: "
-                  f"{_code.namespace_summary()}]\n\nYour task:\n{step}"
+                  f"{_code.namespace_summary()}]\n\n"
+                  f"STEP {idx}/{n_steps} -- DO: {do}"
+                  + (f"\nPRODUCE: {produce}" if produce else "")
                   + (f"\n\n{gloss}" if gloss else ""))
         emit("active", who="engineer", phase="working", round=rnd[0])
         n_before = len(evidence)
@@ -253,26 +357,61 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     # the ask (coherence gate) is retried once with a corrective dispatch; if
     # it still fails, STOP -- do not plow ahead to dependent steps.
     completed = True
-    for step in todo[:max_rounds]:
-        ok, report, new_obs = dispatch(step)
-        if ok and not pm.addresses(step, new_obs):    # finished but off-step
-            log("[off-step: engineer work did not address the step]", report)
-            emit("off_step", round=rnd[0], step=step, report=report)
-            ok = False                                # retry like a failure
+    for idx, step in enumerate(walk, 1):
+        ok, report, new_obs = dispatch(step, idx)
+        why = ""
+        if ok:
+            met, reason = _produce_met(step, new_obs)    # VERIFY #1: produce-check
+            if not met:
+                log("[produce unmet]", reason)
+                emit("produce_unmet", round=rnd[0], step=_step_text(step),
+                     reason=reason)
+                ok, why = False, reason
+            else:
+                produced, issue = pm.verify_produce(step, new_obs)  # VERIFY #2
+                if not produced:                          # wrong type/shape
+                    log("[produce mismatch]", issue)
+                    emit("produce_mismatch", round=rnd[0], step=_step_text(step),
+                         issue=issue)
+                    ok, why = False, (issue or "the output had the wrong "
+                                      "type/shape for what the step required")
+                elif not pm.addresses(step, new_obs):    # finished but off-step
+                    log("[off-step: engineer work did not address the step]",
+                        report)
+                    emit("off_step", round=rnd[0], step=_step_text(step),
+                         report=report)
+                    ok, why = False, "the work drifted off this step"
         if not ok:
-            ok, _, _ = dispatch(
-                "Do EXACTLY this step and report ONLY its result: " + step +
-                " (the previous attempt drifted off the task or hit its step "
-                "limit -- read the evidence and tracebacks, then finish "
-                "precisely this step).")
+            do = step["do"] if isinstance(step, dict) else str(step)
+            produce = step.get("produce", "") if isinstance(step, dict) else ""
+            corr = {"do": "Do EXACTLY this and report ONLY its result -- " + do
+                          + " (the previous attempt did not finish or did not "
+                          + "produce the required output"
+                          + (f": {why}" if why else "")
+                          + "; read the evidence/tracebacks, then finish "
+                            "precisely this)",
+                    "produce": produce}
+            ok, _, retry_obs = dispatch(corr, idx)
+            if ok and not _produce_met(step, retry_obs)[0]:   # re-verify produce
+                ok = False
+            elif ok and not pm.verify_produce(step, retry_obs)[0]:  # re-verify #2
+                ok = False
         if not ok:
-            log("[walk stopped: step failed twice]", step)
-            emit("step_failed", step=step)
+            log("[walk stopped: step failed twice]", _step_text(step))
+            emit("step_failed", step=_step_text(step))
             completed = False
             break
 
     emit("active", who="PM", phase="composing the final answer")
     msg = pm.summarize(direct, render_evidence(), completed)
+    # VERIFY #3: cross-check the answer against the ORIGINAL request -- flag
+    # honestly if a requested deliverable is missing rather than papering over it
+    emit("active", who="PM", phase="verifying the answer")
+    complete, missing = pm.verify_answer(user_message, msg)
+    if not complete and missing:
+        log("[verify: possibly incomplete]", missing)
+        emit("verify", complete=False, missing=missing)
+        msg += f"\n\n(verification -- possibly incomplete: {missing})"
     log("[PM -> user]", msg)
     emit("respond", message=msg)
     emit("active", who="none", phase="done")
