@@ -252,13 +252,19 @@ class ProjectManager:
             think=False, label="PM.verify_produce")
         return bool(out.get("produced", True)), str(out.get("issue") or "").strip()
 
-    def summarize(self, direct_speech, evidence, completed=True):
+    def summarize(self, direct_speech, evidence, completed=True, missing=""):
         """Compose the final user answer from the evidence. If the run did NOT
-        complete, say so honestly rather than inventing a result."""
+        complete, say so honestly rather than inventing a result. `missing`
+        names deliverable(s) a previous draft left out (verify_answer's
+        finding) so the redraft includes them."""
         note = ("" if completed else
                 " NOTE: the run did NOT finish -- a step hit its limit. Report "
                 "honestly what was and was not achieved; do NOT present a "
                 "result as if the task succeeded.")
+        if missing:
+            note += (" Your previous draft OMITTED this requested deliverable: "
+                     + missing + ". State it explicitly this time, copying any "
+                     "numeric value exactly from a received_output.")
         out = self._json(
             "Using ONLY the evidence below, give the user the concrete final "
             "result for their request (actual numbers; if a plot/file was "
@@ -409,9 +415,18 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     emit("active", who="PM", phase="verifying the answer")
     complete, missing = pm.verify_answer(user_message, msg)
     if not complete and missing:
-        log("[verify: possibly incomplete]", missing)
-        emit("verify", complete=False, missing=missing)
-        msg += f"\n\n(verification -- possibly incomplete: {missing})"
+        # close the loop: verify_answer FOUND the gap, so redraft once with
+        # the missing deliverable named (the number is usually sitting in the
+        # evidence; the first draft just dropped it) -- then re-verify
+        log("[verify: possibly incomplete -- redrafting]", missing)
+        emit("verify", complete=False, missing=missing, redraft=True)
+        redraft = pm.summarize(direct, render_evidence(), completed,
+                               missing=missing)
+        complete2, _ = pm.verify_answer(user_message, redraft)
+        if complete2:
+            msg = redraft
+        else:
+            msg += f"\n\n(verification -- possibly incomplete: {missing})"
     log("[PM -> user]", msg)
     emit("respond", message=msg)
     emit("active", who="none", phase="done")

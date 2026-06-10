@@ -53,11 +53,13 @@ DEFAULT_SYSTEM_PROMPT = (
     "Reuse earlier results; never re-call a tool with the same arguments."
 )
 
-# A/B (CYTOOLS_MAP_TOOLS): when the harness-side iteration tools are enabled,
-# reroute the "question over MANY items" case to them (the tool schemas alone
-# don't tell the model they replace hand-written loops).
+# When the harness-side iteration tools are enabled (default on; gate
+# CYTOOLS_MAP_TOOLS), reroute the "question over MANY items" case to them
+# (the tool schemas alone don't tell the model they replace hand-written
+# loops). Mirrors mapping.env_flag without importing the heavy tool chain.
 import os as _os
-if _os.environ.get("CYTOOLS_MAP_TOOLS"):
+if (_os.environ.get("CYTOOLS_MAP_TOOLS") or "1").strip().lower() \
+        not in ("0", "false", "no", "off"):
     DEFAULT_SYSTEM_PROMPT += (
         " For a per-polytope quantity across many polytopes, do NOT write "
         "your own loop: call compute_for_each(ids, {name: one-item "

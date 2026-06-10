@@ -52,8 +52,9 @@ def _nums(text):
 # Stripping these before number-matching stops a truth value from being credited
 # just because it collides with a domain term in the answer's prose.
 _DOMAIN_NOISE = re.compile(
-    r"h\^?\d+(?:\s*,\s*\d+)?(?:\s*=\s*-?\d+)?"          # h11, h21, h^1,1, h11=4
-    r"|\bc_?\d+\b"                                       # c2, c_2
+    # h11, h21, h^1,1, h^{11}, h_{21}, with or without an =N spec
+    r"h[\^_]?\{?\d+(?:\s*,\s*\d+)?\}?(?:\s*=\s*-?\d+)?"
+    r"|\bc_?\{?\d+\}?"                                   # c2, c_2, c_{2}
     r"|\d+-(?:face|faces|fold|folds|dimensional|cycle|cycles|form|forms|plane)"
     r"|\(\s*-?\d+\s*,\s*-?\d+\s*\)"                      # (1,1), (2,1)
     r"|\b[KP]\d+\b|\bZ_?\d+\b|\bCP\d+\b|\bSU\(\d+\)|\bE\d\b"  # K3, P1, Z2, CP3...
@@ -68,7 +69,10 @@ def _denoise(text):
 
 def _claimed_ints(text):
     """Integers the answer explicitly states: leading number in a bold span,
-    or after an 'answer/total/count' marker. Avoids crediting echoed digits."""
+    or after an 'answer/total/count' marker. Avoids crediting echoed digits.
+    Operates on the DE-NOISED text so a domain term's digits (the 21 in
+    'the h21 value is 29') can never be read as the claim."""
+    text = _denoise(text)
     claims = []
     for span in re.findall(r"\*\*(.+?)\*\*", text):
         m = re.match(r"\s*(-?[\d,]+)\b", span)

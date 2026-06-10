@@ -32,6 +32,16 @@
 # external imports
 import os
 
+
+# human-read
+def env_flag(name: str, default: bool = True) -> bool:
+    """Parse an on/off env flag: unset -> default; '0'/'false'/'no'/'off'
+    (any case) -> False; anything else -> True."""
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return val.strip().lower() not in ("0", "false", "no", "off", "")
+
 # local imports
 from cytools_agent.tools import code as _code
 from cytools_agent.tools._synonyms import forgive_kwargs
@@ -114,7 +124,9 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
     dict
         n_requested, n_ok (ids that evaluated cleanly), stored (the scratchpad
         names now holding the aligned lists, including ok_ids), a short
-        preview of each list, and any errors (first few, with a count).
+        preview of each list, stats per numeric list (n/mean/min/max/sum --
+        report THESE, do not recompute by eye), and any errors (first few,
+        with a count).
     """
     ids = _as_id_list(ks_inds)
     exprs = _as_named_exprs(expressions)
@@ -159,6 +171,22 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
         "stored": list(cols) + ["ok_ids"],
         "preview": {name: vals[:_PREVIEW] for name, vals in cols.items()},
     }
+    # aggregates computed BY THE HARNESS: the reductions a question usually
+    # wants (mean/min/max/sum) arrive pre-computed and exactly right, so the
+    # model reports them instead of eyeballing arithmetic from a preview
+    stats = {}
+    for name, vals in cols.items():
+        if vals and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                        for v in vals):
+            stats[name] = {
+                "n": len(vals),
+                "mean": round(sum(vals) / len(vals), 6),
+                "min": min(vals),
+                "max": max(vals),
+                "sum": round(sum(vals), 6),
+            }
+    if stats:
+        out["stats"] = stats
     if n_err:
         out["errors"] = errors + (
             [f"... {n_err - len(errors)} more"] if n_err > len(errors) else [])
@@ -249,7 +277,9 @@ def make_plot(kind: str, x: str | list, y: str | list | None = None,
     return "figure built." + note
 
 
-MAP_TOOLS_ENABLED = bool(os.environ.get("CYTOOLS_MAP_TOOLS"))
+# DEFAULT ON since the 2026-06-10 A/B (orchestrator 0/12 -> 4-6/12; the only
+# passing configuration). CYTOOLS_MAP_TOOLS=0 restores the baseline arm.
+MAP_TOOLS_ENABLED = env_flag("CYTOOLS_MAP_TOOLS", default=True)
 
 # A/B gate: only when enabled do the tools enter the run_python namespace and
 # the advertised tool list -- the baseline arm stays byte-identical.

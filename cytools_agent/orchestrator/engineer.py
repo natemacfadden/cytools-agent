@@ -109,9 +109,10 @@ LEAN_CHEATSHEET = (
 _MAP_CHEAT = (
     "\n  compute_for_each(ks_inds, {name: expression, ...}) -> evaluates each "
     "expression once PER id (with ks_ind bound) and stores aligned lists named "
-    "`name` in the scratchpad. USE THIS instead of writing your own loop over "
-    "polytopes. Example: compute_for_each(ids, {'genus_max': "
-    "\"max(get_polytope_info(ks_ind)['genera_2face'])\"})\n"
+    "`name` in the scratchpad; also returns stats (n/mean/min/max/sum) per "
+    "numeric list -- report those numbers directly. USE THIS instead of "
+    "writing your own loop over polytopes. Example: compute_for_each(ids, "
+    "{'genus_max': \"max(get_polytope_info(ks_ind)['genera_2face'])\"})\n"
     "  make_plot(kind, x, y=None, xlabel='', ylabel='', title='') -> builds and "
     "saves the figure from stored list NAMES (e.g. make_plot(kind='scatter', "
     "x='tadpole', y='genus_max')). USE THIS instead of writing matplotlib code."
@@ -235,7 +236,10 @@ def _parse_json(text):
 # When the scratchpad holds an unambiguous finish (done is True, or an
 # `answer` variable was assigned), read it as the act fields. The same
 # grounded() gate still applies, so this cannot admit fabricated answers.
-FINISH_FORGIVE = bool(os.environ.get("CYTOOLS_FINISH_FORGIVE"))
+# DEFAULT ON since the 2026-06-10 A/B (necessary half of the only passing
+# configuration); CYTOOLS_FINISH_FORGIVE=0 disables.
+from cytools_agent.tools.mapping import env_flag
+FINISH_FORGIVE = env_flag("CYTOOLS_FINISH_FORGIVE", default=True)
 
 
 def _scratchpad_finish():
@@ -309,7 +313,15 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
              obs=len(evidence) - n0, ok=ok)
         return report, len(evidence) - n0, ok
 
-    for _step in range(max_steps):
+    # budget: an observation that ERRORED (traceback) is refunded -- recovery
+    # from a pointed error message is the designed path, so it must not eat
+    # the steps the real work needs (L6 ladder: budget burned on early churn,
+    # then the walk died before the deliverable). `hard` caps total LLM calls
+    # so an unbroken error loop still terminates.
+    consumed, total, hard = 0, 0, max_steps + 8
+    while consumed < max_steps and total < hard:
+        total += 1
+        consumed += 1            # refunded below if this step's code errored
         _t = time.monotonic()
         msg = _ollama_chat(model, messages, think, tools=[_ACT_SCHEMA],
                            label=f"engineer.r{round_no}")
@@ -340,6 +352,8 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
             _t = time.monotonic()
             out = _scratchpad_run_python(code)
             t_code[0] += time.monotonic() - _t
+            if "Traceback (most recent call last)" in out:
+                consumed -= 1    # error + pointed feedback: recovery is free
             add({"intent": intent or "(none)", "ran_code": code,
                  "received_output": out, "interpretation": "",
                  "valid_python": valid_python(code)})

@@ -97,6 +97,8 @@ objects.
 | `get_cy_info(ks_ind, heights, t=None, cone="Kcup")` | CY invariants from a triangulation: Hodge numbers, Euler char, second Chern class, nonzero in-basis triple intersections, prime-toric-divisor count. `t` (a Kahler-cone point, or `"tip"`) adds divisor volumes, CY volume, and curve volumes (+ `min_curve_volume`) there (after a cone-membership check). Pass a list of heights -> a list of results. |
 | `get_cy_cones(ks_ind, heights, cone="Kcup")` | Mori cone rays = dual Kahler cone hyperplane normals. `cone="Kcup"` accurate, `"toric"` cheaper at large h11. |
 | `run_python(code)` | Arbitrary Python in a persistent namespace (preloaded `cytools`, `numpy`, the tools, `get_polytope`/`get_cy`). Escape hatch; captures stdout, auto-saves figures. |
+| `compute_for_each(ks_inds, exprs)` | Harness-side iteration: evaluates each expression once per id (`ks_ind` bound) and stores ALIGNED lists in the scratchpad; returns previews + per-column stats (n/mean/min/max/sum) and skips erroring ids without losing alignment. The model writes a one-item expression; the harness does the loop. Disable with `CYTOOLS_MAP_TOOLS=0`. |
+| `make_plot(kind, x, y, ...)` | Builds and saves a scatter/histogram/line/bar figure from stored list NAMES (or literal lists) -- no model-written matplotlib. Disable with `CYTOOLS_MAP_TOOLS=0`. |
 
 ## Use from Claude Code (MCP)
 
@@ -160,4 +162,26 @@ python -m eval.agent_tests qwen3:8b 3
 # integrity check: re-execute each corpus entry's stored code and confirm it
 # still reproduces the stored answer
 python -m eval.corpus verify
+
+# orchestrator (PM+engineer) on the hard multi-step PM corpus, with
+# diagnostics (rounds/loops/step-fails) and BOTH graders (prose + evidence)
+python -m eval.eval_orch --ids 3,4,6,9 --reps 3 --model qwen3:8b
+
+# the same problems through the single-agent loop (architecture comparison)
+python -m eval.eval_single_pm qwen3:8b --ids 3,4,6,9 --reps 3
+
+# difficulty ladder: 6 rungs from a bare fetch to compute+plot -- locates the
+# capability cliff rather than scoring an all-hard corpus
+python -m eval.eval_orch --corpus eval/ladder.jsonl --reps 3
 ```
+
+### Local-model gotchas (measured)
+
+Ollama's vram-based default context (4096 here) **silently front-truncates**
+long prompts -- the system prompt is lost first. The orchestrator's native
+transport now requests `num_ctx=16384` by default (`CYTOOLS_NUM_CTX`
+overrides; `0` = server default); the OpenAI-compatible path the single agent
+uses cannot set it per request, so start the server with
+`OLLAMA_CONTEXT_LENGTH=16384`. Newer qwen3 builds may also return an EMPTY
+`content` with the thinking in a separate `reasoning` field; the agent loop
+nudges instead of returning an empty answer.
