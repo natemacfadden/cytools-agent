@@ -49,6 +49,25 @@ agent.save_history("session.py")  # or let the model call it
 
 `.chat()` is stateful -- history accumulates across calls.
 
+For bigger multi-step questions (loop over many polytopes, compute, plot),
+use the **orchestrator** -- a project-manager model plans, an engineer
+executes step by step, and every result is captured in an evidence log:
+
+```python
+from cytools_agent.orchestrator import run_session
+print(run_session("Among the first 100 polytopes at h11=3, plot the "
+                  "distribution of NTFE triangulation counts and report "
+                  "the mean."))
+```
+
+**Watch it live:** `python -m cytools_agent.viewer` then open
+http://127.0.0.1:8765 -- the plan, each step's code and real output, and
+figures render as the session runs; archived sessions are browsable there
+too, and `python -m cytools_agent.viewer export` bakes one into a single
+shareable HTML. For extra confidence on research questions,
+`run_session_voted(q, votes=3)` accepts an answer only when independent
+runs agree on the number.
+
 ## Demo
 
 About the most complex thing `qwen3:8b` will carry to completion -- a single

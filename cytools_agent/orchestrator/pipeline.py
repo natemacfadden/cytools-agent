@@ -57,7 +57,8 @@ PIPELINE_FORMAT = {
     "properties": {
         "fits": {"type": "boolean"},
         "fetch": {"type": "object",
-                  "properties": {"h11": {"type": "integer"},
+                  "properties": {"h11": {"type": ["integer", "array"],
+                                         "items": {"type": "integer"}},
                                  "h21": {"type": ["integer", "null"]},
                                  "limit": {"type": "integer"},
                                  "favorable": {"type": ["boolean", "null"]}},
@@ -86,7 +87,9 @@ _COMPILE_INSTRUCTIONS = (
     "Decide whether this request fits the pipeline 'fetch polytopes -> "
     "compute expression(s) once per polytope -> reduce -> optional plot'. "
     "If not, reply fits=false (everything else may be minimal). If it fits: "
-    "fetch = the Hodge-number filters and how many polytopes; map = 1-3 "
+    "fetch = the Hodge-number filters and how many polytopes -- `limit` is "
+    "PER h11, and for 'at each h11 in a range/list' pass h11 as the LIST of "
+    "every value (e.g. [2,3,4,5,6,7,8,9,10]; never just the first); map = 1-3 "
     "named one-item Python EXPRESSIONS, each evaluated once per polytope "
     "with `ks_ind` bound to its id (the tools below are callable in the "
     "expression); reduce = the requested aggregations over the named map "
@@ -124,8 +127,32 @@ def _valid(spec):
         if p["kind"] != "histogram" and not p.get("y"):
             return f"a {p['kind']} plot needs y"
     f = spec.get("fetch") or {}
-    if not (1 <= f.get("limit", 0) <= 2000):
-        return f"fetch limit {f.get('limit')!r} out of range"
+    h11s = f.get("h11")
+    h11s = h11s if isinstance(h11s, list) else [h11s]
+    if not h11s or not all(isinstance(h, int) and 1 <= h <= 491 for h in h11s):
+        return f"fetch h11 {f.get('h11')!r} invalid"
+    if not (1 <= f.get("limit", 0) and f["limit"] * len(h11s) <= 2000):
+        return (f"fetch limit {f.get('limit')!r} x {len(h11s)} h11 values "
+                f"out of range")
+    return ""
+
+
+# range phrasing that a SCALAR-h11 spec cannot honor -- the observed failure
+# was "at each h11 in [2,10]" compiled to h11=2 and confidently answering a
+# narrower question than asked
+_H11_RANGE_RE = re.compile(
+    r"(each|every|all)\s+h11|h11\s*(in|from)\s*\[?\s*\d+\s*(,|to|-|\.\.)"
+    r"|h11\s*=\s*\d+\s*,\s*\d+", re.I)
+
+
+def _range_issue(spec, direct):
+    """'' or a recompile instruction: the request sweeps h11 but the spec
+    fetches only one value."""
+    h11 = (spec.get("fetch") or {}).get("h11")
+    if _H11_RANGE_RE.search(direct) and not (isinstance(h11, list)
+                                             and len(h11) > 1):
+        return ("the request asks for EACH h11 in a range, but fetch.h11 is "
+                f"{h11!r} -- pass h11 as the full list of values")
     return ""
 
 
@@ -194,11 +221,14 @@ def run_pipeline(spec, evidence):
     """Execute a VALIDATED spec; return the composed answer string.
     Raises on any stage failure (caller falls back to the free-form walk)."""
     f = spec["fetch"]
-    ids = polytope.fetch_polytopes(
-        limit=f["limit"], h11=f["h11"], h21=f.get("h21"),
-        favorable=f.get("favorable"))
+    h11s = f["h11"] if isinstance(f["h11"], list) else [f["h11"]]
+    ids = []
+    for h in h11s:                      # limit is PER h11
+        ids += polytope.fetch_polytopes(
+            limit=f["limit"], h11=h, h21=f.get("h21"),
+            favorable=f.get("favorable"))
     _obs(evidence, "pipeline fetch",
-         f"fetch_polytopes(limit={f['limit']}, h11={f['h11']}, "
+         f"fetch_polytopes(limit={f['limit']}, h11={h11s}, "
          f"h21={f.get('h21')!r}, favorable={f.get('favorable')!r})",
          f"{len(ids)} ids: {list(ids[:5])}...")
 
@@ -212,8 +242,9 @@ def run_pipeline(spec, evidence):
     cols = {name: _code._NS[name] for name in spec["map"]}
     ok_ids = _code._NS["ok_ids"]
 
+    h11_desc = (f"h11 in {h11s}" if len(h11s) > 1 else f"h11={h11s[0]}")
     parts = [f"Computed {', '.join(spec['map'])} for {r['n_ok']} of "
-             f"{r['n_requested']} polytopes at h11={f['h11']}"
+             f"{r['n_requested']} polytopes at {h11_desc}"
              + (f", h21={f['h21']}" if f.get("h21") is not None else "")
              + (" (favorable)" if f.get("favorable") else "") + "."]
     for red in spec["reduce"]:
@@ -246,6 +277,8 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log):
             emit("pipeline", fits=False, reason=f"compile error: {e}")
             return None
         why = _valid(spec)
+        if not why:
+            why = _range_issue(spec, direct)
         if not why:
             why = _spec_quantity_issues(spec, direct)
             if why:
