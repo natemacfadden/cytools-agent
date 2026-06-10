@@ -88,9 +88,15 @@ class _InfoDict(dict):
 
 
 _CACHE   = {} # ks_ind -> vertices (list[list[int]])
-_FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool}; how much of each
-              # query is known as a contiguous prefix (from index 0) in the
-              # cache
+_FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool, "ids": [...]}.
+              # "ids" is the DB-ORDER id list this query has fetched (a
+              # contiguous prefix from index 0). Serving a query from the
+              # cache MUST slice this list -- reconstructing the order by
+              # sorting every cached id broke "the first N": an (h11, h21)-
+              # specific or favorable fetch caches ids BEYOND the broad
+              # prefix, and they sort into the middle (measured: pm_corpus
+              # id9's "first 100 at h11=4" silently became a different 100
+              # as the day's runs polluted the cache, flipping its answer).
 
 # Optional on-disk persistence of the (real) fetched polytopes, so repeated
 # runs do not re-hit the Kreuzer-Skarke database. First fetch is genuine; later
@@ -114,6 +120,10 @@ def _load_disk_cache():
     for k, v in d.get("fetched", {}).items():
         try:                       # a malformed/corrupt entry must not break import
             h11s, h21s = k.split(",")
+            if "ids" not in v:     # legacy entry from before order tracking:
+                continue           # cannot reconstruct the DB prefix -- drop
+                                   # the bookkeeping (vertices stay cached;
+                                   # the next query refetches the real order)
             _FETCHED[(int(h11s), int(h21s) if h21s else None)] = v
         except (ValueError, TypeError):
             continue
@@ -165,9 +175,10 @@ def get_polytope(ks_ind: str | cytools.Polytope) -> cytools.Polytope:
 
 # human-read
 def _cache_can_serve(h11: int, h21: int | None, limit: int) -> bool:
-    """True if the cache already holds the first `limit` of this query."""
+    """True if the cache already holds the first `limit` of this query (a
+    recorded DB-order prefix long enough, or known-complete)."""
     exact = _FETCHED.get((h11, h21))
-    if exact and (exact["complete"] or exact["count"] >= limit):
+    if exact and (exact["complete"] or len(exact.get("ids", [])) >= limit):
         return True
 
     # a fully-exhausted (h11-only) fetch determines every (h11, h21) subquery
@@ -182,18 +193,23 @@ def _cache_can_serve(h11: int, h21: int | None, limit: int) -> bool:
 
 # human-read
 def _get_cached_ks_inds(h11: int, h21: int | None) -> list[str]:
-    """Cached ids for (h11, h21) sorted by (h21, ind); h21=None matches all."""
+    """Cached ids for this query IN DATABASE ORDER -- the recorded fetch
+    prefix when one exists (immune to cache pollution from other queries),
+    falling back to the exact-(h11, h21) group sorted by ind (within one
+    group, ind IS the database order)."""
+    exact = _FETCHED.get((h11, h21))
+    if exact and exact.get("ids"):
+        return list(exact["ids"])
+    if h21 is None:
+        broad = _FETCHED.get((h11, None))
+        return list(broad["ids"]) if broad and broad.get("ids") else []
     matches = []
-
     for ks_ind in _CACHE:
-        _h11,_h21,ind = (int(part.split("-")[1]) for part in ks_ind.split("_"))
-
-        if _h11 != h11 or (h21 is not None and _h21 != h21):
-            continue
-        matches.append((_h21, ind, ks_ind))
-
+        _h11, _h21, ind = (int(p.split("-")[1]) for p in ks_ind.split("_"))
+        if _h11 == h11 and _h21 == h21:
+            matches.append((ind, ks_ind))
     matches.sort()
-    return [ks_ind for _, _, ks_ind in matches]
+    return [ks_ind for _, ks_ind in matches]
 
 # human-read
 def _filter_favorable(ks_inds: list[str], favorable: bool | None) -> list[str]:
@@ -214,20 +230,27 @@ def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
     )
 
     # polytopes arrive in lexicographic (h11, h21, ind) order, so ind counts
-    # within each (h11, h21) group, reset when the group changes
+    # within each (h11, h21) group, reset when the group changes. The ordered
+    # id list IS the database order for this query -- record it, so serving
+    # from the cache never has to reconstruct (and corrupt) it by sorting.
     prev_group, ind = None, 0
+    ordered = []
     for p in polys:
         _h11, _h21 = int(p.h11(lattice="N")), int(p.h21(lattice="N"))
         ind = ind + 1 if (_h11, _h21) == prev_group else 0
         prev_group = (_h11, _h21)
-
-        _CACHE[f"h11-{_h11}_h21-{_h21}_ind-{ind}"] = p.vertices().tolist()
+        ks = f"h11-{_h11}_h21-{_h21}_ind-{ind}"
+        _CACHE[ks] = p.vertices().tolist()
+        ordered.append(ks)
 
     n = len(polys)
     prev = _FETCHED.get((h11, h21))
+    if prev and len(prev.get("ids", [])) >= n:
+        ordered = prev["ids"]           # keep the longer known prefix
     _FETCHED[(h11, h21)] = {
         "count": max(n, prev["count"] if prev else 0),
         "complete": bool(prev and prev["complete"]) or (n < limit),
+        "ids": ordered,
     }
     _save_disk_cache()   # persist the real fetch so reruns skip the KS DB
 

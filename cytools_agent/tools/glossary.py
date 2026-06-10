@@ -127,6 +127,13 @@ _GLOSSARY = {
         "(a vector, one entry per basis divisor).",
         "get_cy_info(ks_ind, h)['second_chern_class']",
         ["c2", "chern class", "second chern"]),
+    "lattice points": (
+        "The lattice points of the polytope; n_points is how many (the count "
+        "includes the origin). Vertices are a subset (n_vertices).",
+        "get_polytope_info(ks_ind)['n_points']   # count; points: "
+        "get_polytope(ks_ind).points()",
+        ["lattice point count", "number of lattice points", "points of the "
+         "polytope", "lattice point"]),
     "hodge numbers": (
         "h^1,1 (number of Kahler moduli) and h^2,1 (number of "
         "complex-structure moduli) of the CY threefold.",
@@ -291,6 +298,60 @@ cy_glossary.__doc__ += (
 # ("first FAVORABLE polytope", "interior to FACETS"), so auto-scanning them is
 # mostly noise. They stay available via the cy_glossary tool + vocabulary list.
 _SCAN_SKIP = {"favorable", "facet", "fine", "regular", "star"}
+
+
+# Markers that appear in MANY recipes / questions and so discriminate nothing
+# (a lint keyed on them would fire constantly).
+_MARKER_STOP = {"h11", "h21", "shape", "heights", "count", "tolist", "items",
+                "get", "len", "ks_ind", "tip"}
+
+
+# human-read
+def _recipe_markers(recipe: str) -> set:
+    """The discriminative identifiers a recipe computes through: dict fields
+    (['curve_volumes']) and method names (.automorphisms(). Generic tokens
+    are dropped, so the survivors mark THIS quantity specifically."""
+    fields = set(re.findall(r"\['([A-Za-z0-9_]+)'\]", recipe))
+    methods = set(re.findall(r"\.([A-Za-z0-9_]+)\(", recipe))
+    return {m for m in fields | methods if m not in _MARKER_STOP}
+
+
+# all known quantity markers across the glossary -- the universe the lint
+# checks "computed a DIFFERENT quantity" against
+ALL_MARKERS = set().union(
+    *(_recipe_markers(r) for _d, r, _s in _GLOSSARY.values()))
+
+
+# human-read
+def expected_by_term(message: str) -> dict:
+    """{glossary term -> its recipe markers} for each term the message names
+    (same matching as glossary_context). Per-term so a caller can check that
+    EVERY named quantity is computed, not just one of them."""
+    mtoks = _norm(message).split()
+
+    def _has(seq):
+        n = len(seq)
+        return n > 0 and any(mtoks[i:i + n] == seq
+                             for i in range(len(mtoks) - n + 1))
+
+    out = {}
+    for nphrase, key in _PHRASES:
+        if key in _SCAN_SKIP or key in out:
+            continue
+        if _has(nphrase.split()):
+            m = _recipe_markers(_GLOSSARY[key][1])
+            if m:
+                out[key] = m
+    return out
+
+
+# human-read
+def expected_markers(message: str) -> set:
+    """Markers for the quantities the message actually names (union over
+    expected_by_term). Empty when no term matches -- the lint then has
+    nothing to enforce and stays silent."""
+    return set().union(*expected_by_term(message).values()) \
+        if expected_by_term(message) else set()
 
 
 # human-read

@@ -39,7 +39,8 @@ import sys
 import time
 
 # local imports
-from cytools_agent.orchestrator import run_session, read_evidence, read_session
+from cytools_agent.orchestrator import (run_session, run_session_voted,
+                                        read_evidence, read_session)
 from cytools_agent.orchestrator.evidence import _prints_only_literals
 from eval.grading import grade, hit
 
@@ -95,29 +96,45 @@ def evidence_grade(truth, evidence):
     return "FAIL"
 
 
-def run_one(row, model, timeout):
-    signal.alarm(timeout)
+def run_one(row, model, timeout, votes=1):
+    signal.alarm(timeout * votes)   # the budget covers every constituent run
     t0 = time.monotonic()
     try:
-        answer = run_session(row["question"], model=model, verbose=False)
+        if votes > 1:   # numeric self-consistency (diagnostics reflect the
+            answer = run_session_voted(   # LAST constituent session only)
+                row["question"], votes=votes, model=model, verbose=False)
+        else:
+            answer = run_session(row["question"], model=model, verbose=False)
         timed_out = False
     except _TimedOut:
         answer = "(timed out)"
+        timed_out = True
+    except OSError as e:
+        # a transport failure (socket timeout, connection reset) must score
+        # as a timeout, not crash the whole eval mid-arm
+        answer = f"(transport error: {e})"
         timed_out = True
     finally:
         signal.alarm(0)
     dt = time.monotonic() - t0
     ev = read_evidence()
     diag = _diagnostics(read_session(), ev)
-    status = "TIMEOUT" if timed_out else grade(answer, row["answer"])
-    # honest bar: a run that did not finish (step limit / walk stopped) is not a
-    # PASS even if the truth digit happens to appear in the PM's prose
-    if status == "PASS" and diag["step_failed"]:
+    # grade WITHOUT the voting annotations -- "(self-consistency: 2/2 ...)"
+    # injects digits that can collide with the truth (observed: truth 2
+    # false-passing via the "2/2")
+    graded_text = answer.split("(self-consistency")[0] \
+                        .split("(LOW CONFIDENCE")[0]
+    status = "TIMEOUT" if timed_out else grade(graded_text, row["answer"])
+    # honest bar: a run that did not finish (step limit / walk stopped) is not
+    # a PASS even if the truth digit happens to appear in the PM's prose.
+    # NOT applied to voted runs: their diagnostics describe only the LAST
+    # constituent session, which may not be the one whose answer was chosen.
+    if status == "PASS" and diag["step_failed"] and votes == 1:
         status = "FAIL"
     # parallel evidence-based grade (truth must appear in a COMPUTED output);
     # reported alongside prose status to measure grader disagreement
     ev_status = "TIMEOUT" if timed_out else evidence_grade(row["answer"], ev)
-    if ev_status == "PASS" and diag["step_failed"]:
+    if ev_status == "PASS" and diag["step_failed"] and votes == 1:
         ev_status = "FAIL"
     return {"id": row["id"], "kind": row["kind"], "status": status,
             "status_evidence": ev_status, "secs": round(dt, 1),
@@ -130,6 +147,7 @@ def main():
     timeout = int(args[args.index("--timeout") + 1]) \
         if "--timeout" in args else 600
     reps = int(args[args.index("--reps") + 1]) if "--reps" in args else 1
+    votes = int(args[args.index("--votes") + 1]) if "--votes" in args else 1
     corpus = args[args.index("--corpus") + 1] if "--corpus" in args else None
     rows = {r["id"]: r for r in _rows(corpus)}
     ids = ([int(x) for x in args[args.index("--ids") + 1].split(",")]
@@ -140,7 +158,7 @@ def main():
     results = []
     for i in ids:
         for rep in range(reps):
-            r = run_one(rows[i], model, timeout)
+            r = run_one(rows[i], model, timeout, votes=votes)
             r["rep"] = rep
             results.append(r)
             flags = []

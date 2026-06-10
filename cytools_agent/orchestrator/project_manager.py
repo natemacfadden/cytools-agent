@@ -32,13 +32,27 @@ import time
 
 # local imports
 from cytools_agent.tools import code as _code
-from cytools_agent.tools.glossary import glossary_context
-from cytools_agent.orchestrator.engineer import (TOOL_CHEATSHEET,
+from cytools_agent.tools.glossary import expected_markers, glossary_context
+from cytools_agent.orchestrator.engineer import (SCHEMA_ACT, TOOL_CHEATSHEET,
                                                  LEAN_CHEATSHEET, _ollama_chat,
                                                  _parse_json, run_engineer)
+
+# A/B (rides CYTOOLS_SCHEMA_ACT): grammar-constrained plan -- the decoder
+# guarantees 2-5 {do, produce} steps, ending the coerce-and-retry dance.
+_PLAN_FORMAT = {
+    "type": "object",
+    "properties": {"todo": {
+        "type": "array", "minItems": 2, "maxItems": 5,
+        "items": {"type": "object",
+                  "properties": {"do": {"type": "string", "minLength": 3},
+                                 "produce": {"type": "string"}},
+                  "required": ["do", "produce"]}}},
+    "required": ["todo"],
+}
 from cytools_agent.orchestrator.evidence import (emit, render_evidence,
                                                  reset_evidence, reset_session,
-                                                 save_log)
+                                                 save_log, write_evidence)
+from cytools_agent.orchestrator.pipeline import PIPELINE, try_pipeline
 
 # model-read
 PM_SYSTEM = (
@@ -131,12 +145,13 @@ class ProjectManager:
         self.think = think             # routing CoT; off is ~40x faster
         self.plan_think = plan_think   # decomposition needs reasoning
 
-    def _json(self, instruction, user, think=None, label="PM"):
+    def _json(self, instruction, user, think=None, label="PM", schema=None):
         th = self.think if think is None else think
         msg = _ollama_chat(
             self.model,
             [{"role": "system", "content": PM_SYSTEM + " " + instruction},
-             {"role": "user", "content": user}], th, as_json=True, label=label)
+             {"role": "user", "content": user}], th,
+            as_json=schema or True, label=label)
         return _parse_json(msg.get("content"))
 
     def translate(self, user_message):
@@ -191,7 +206,9 @@ class ProjectManager:
         todo = []
         for _ in range(3):     # reject incomplete / single-step plans; retry
             raw = self._json(instruction, direct_speech,
-                             think=self.plan_think, label="PM.plan").get("todo")
+                             think=self.plan_think, label="PM.plan",
+                             schema=_PLAN_FORMAT if SCHEMA_ACT else None
+                             ).get("todo")
             todo = _coerce_steps(raw)
             if len(todo) >= 2 and _plan_covers(direct_speech, todo):
                 return todo
@@ -288,6 +305,63 @@ class ProjectManager:
         return bool(out.get("complete", True)), str(out.get("missing") or "").strip()
 
 
+def _answer_key(msg, question=""):
+    """The comparable RESULT of an answer: its last number after stripping
+    digits that are not results -- file paths (fig_1.png, /home/...), domain
+    terms (2-face, h11=4, c2), self-consistency annotations of nested runs,
+    and SPEC ECHOES (numbers that appear in the question itself, e.g. the
+    '50' of 'the first 50 polytopes'). Lessons learned the hard way: raw
+    \\d+ extraction on CY prose reads '2-face' as the answer 2, and the
+    last number of a sentence is often the restated question, not the
+    result."""
+    import re as _re
+
+    def nums_of(text):
+        text = " ".join(t for t in (text or "").split()
+                        if "/" not in t and ".png" not in t)
+        text = _re.sub(  # domain digits, mirroring eval.grading._DOMAIN_NOISE
+            r"h[\^_]?\{?\d+(?:\s*,\s*\d+)?\}?(?:\s*=\s*-?\d+)?"
+            r"|\bc_?\{?\d+\}?"
+            r"|\d+-(?:face|faces|fold|folds|dimensional|cycle|cycles|form"
+            r"|forms)"
+            r"|\b\d+[dD]\b", " ", text, flags=_re.I)
+        return [f"{float(n):g}"     # canonical: '384.' == '384' == '384.0'
+                for n in _re.findall(r"-?\d+\.?\d*", text)]
+
+    text = (msg or "").split("(self-consistency")[0].split("(LOW CONFIDENCE")[0]
+    nums = nums_of(text)
+    if not nums:
+        return (msg or "").strip()[:40]
+    spec = set(nums_of(question))
+    results = [n for n in nums if n not in spec]
+    return (results or nums)[-1]
+
+
+def run_session_voted(user_message, votes=3, agree=2, **kw):
+    """Numeric self-consistency: run up to `votes` independent sessions and
+    stop as soon as `agree` of them land on the same final number (LLM errors
+    are diverse, so agreement is strong evidence of correctness; the
+    deterministic geometry means matching numbers were computed the same
+    way). Returns the agreed answer, or the modal one annotated as
+    LOW-CONFIDENCE -- never silently picks a singleton."""
+    runs = []   # (key, answer)
+    for v in range(votes):
+        msg = run_session(user_message, **kw)
+        key = _answer_key(msg, question=user_message)
+        runs.append((key, msg))
+        n = sum(k == key for k, _ in runs)
+        if n >= agree:
+            return msg + (f"\n\n(self-consistency: {n}/{v + 1} independent "
+                          f"runs agreed on {key})")
+    counts = {}
+    for k, _ in runs:
+        counts[k] = counts.get(k, 0) + 1
+    best = max(counts, key=counts.get)
+    msg = next(m for k, m in runs if k == best)
+    return msg + (f"\n\n(LOW CONFIDENCE: {votes} runs disagreed -- "
+                  f"results seen: {counts})")
+
+
 # the session loop -- the conductor
 # ---------------------------------
 def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
@@ -315,6 +389,25 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     direct = pm.translate(user_message)
     log("[PM direct speech]", direct)
     emit("direct_speech", text=direct)
+
+    # fast path: the typed pipeline (fetch -> map -> reduce -> plot). The
+    # model fills the template's slots once; the harness executes and
+    # composes the answer from computed values. Any misfit falls through to
+    # the normal plan-and-walk below.
+    if PIPELINE:
+        emit("active", who="PM", phase="compiling the pipeline")
+        ans = try_pipeline(pm, direct, evidence, TOOL_CHEATSHEET, log)
+        if ans is not None:
+            write_evidence(evidence)
+            complete, missing = pm.verify_answer(user_message, ans)
+            if not complete and missing:
+                ans += f"\n\n(verification -- possibly incomplete: {missing})"
+            log("[PM -> user (pipeline)]", ans)
+            emit("respond", message=ans)
+            emit("active", who="none", phase="done")
+            log("[log saved]", save_log(user_message, ans, stamp))
+            return ans
+
     emit("active", who="PM", phase="planning")
     todo = pm.plan(direct)
     log("[PM plan]", json.dumps(todo, indent=2))
@@ -353,7 +446,8 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
         emit("active", who="engineer", phase="working", round=rnd[0])
         n_before = len(evidence)
         report, n_new, ok = run_engineer(
-            model, evidence, rnd[0], prompt, think=eng_think)
+            model, evidence, rnd[0], prompt, think=eng_think,
+            expected=expected_markers(step_str))
         new_obs = evidence[n_before:]      # this dispatch's observations
         log("[engineer report]", report)
         emit("engineer_report", round=rnd[0], report=report, n_obs=n_new, ok=ok)

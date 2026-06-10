@@ -45,19 +45,41 @@ else
     echo "    already installed: $(ollama --version 2>&1 | head -1)"
 fi
 
-echo "==> 4. Ollama server"
-if curl -sf http://localhost:11434/api/version >/dev/null 2>&1; then
-    echo "    already running on localhost:11434"
+# The agent needs a >=16k context window: Ollama's VRAM-based default (often
+# 4096) silently FRONT-truncates long sessions -- the system prompt is lost
+# first and the model appears to go stupid. The service config below bakes
+# OLLAMA_CONTEXT_LENGTH in so every start (including after reboot) is correct.
+echo "==> 4. Ollama server (as an always-on service, 16k context)"
+if [[ "$(uname)" == "Darwin" ]]; then
+    # launchd reads env via launchctl; brew services manages the daemon
+    launchctl setenv OLLAMA_CONTEXT_LENGTH 16384
+    brew services restart ollama >/dev/null
+    echo "    brew service (re)started with OLLAMA_CONTEXT_LENGTH=16384"
+elif command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    # the official installer creates ollama.service; add our env as a drop-in
+    # (survives ollama upgrades) and make sure it starts now and on boot.
+    # Stop any hand-started `ollama serve` first -- it holds port 11434.
+    pkill -u "$USER" -x ollama 2>/dev/null || true
+    sudo mkdir -p /etc/systemd/system/ollama.service.d
+    printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=16384"\n' | \
+        sudo tee /etc/systemd/system/ollama.service.d/cytools-agent.conf >/dev/null
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now ollama
+    echo "    systemd service enabled (drop-in: OLLAMA_CONTEXT_LENGTH=16384)"
 else
-    echo "    starting in background (log: /tmp/ollama.log)"
-    nohup ollama serve >/tmp/ollama.log 2>&1 &
-    for i in {1..10}; do
-        sleep 1
-        if curl -sf http://localhost:11434/api/version >/dev/null 2>&1; then
-            break
-        fi
-    done
+    # no service manager (e.g. a container): plain background process
+    if ! curl -sf http://localhost:11434/api/version >/dev/null 2>&1; then
+        echo "    no systemd; starting in background (log: /tmp/ollama.log)"
+        OLLAMA_CONTEXT_LENGTH=16384 nohup ollama serve >/tmp/ollama.log 2>&1 &
+    fi
 fi
+for i in {1..15}; do
+    curl -sf http://localhost:11434/api/version >/dev/null 2>&1 && break
+    sleep 1
+done
+curl -sf http://localhost:11434/api/version >/dev/null 2>&1 \
+    || { echo "    Ollama did not come up -- check 'systemctl status ollama'" >&2; exit 1; }
+echo "    server is up on localhost:11434"
 
 echo "==> 5. Pull qwen3:8b (~5.2 GB; idempotent -- fast if cached)"
 ollama pull qwen3:8b

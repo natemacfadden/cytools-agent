@@ -81,6 +81,38 @@ def _strip_template_tags(text):
     return text.strip()
 
 
+# human-read
+_CTX_PROBED = set()   # (base_url, model) pairs already probed this process
+
+
+def _warn_if_truncating(client, model):
+    """One-time canary against silent context truncation: the OpenAI-compat
+    endpoint cannot request num_ctx, so a server left at Ollama's vram-based
+    default (often 4096) FRONT-truncates long sessions -- losing the system
+    prompt first, which looks exactly like model stupidity. Send one long
+    prompt and check how many tokens the server actually evaluated; warn
+    loudly if it capped. (setup.sh configures the service correctly; this
+    catches every other server.)"""
+    key = (str(getattr(client, "base_url", "")), model)
+    if key in _CTX_PROBED:
+        return
+    _CTX_PROBED.add(key)
+    try:
+        filler = " ".join(f"w{i}" for i in range(5500))   # ~6-7k tokens
+        resp = client.chat.completions.create(
+            model=model, max_tokens=1,
+            messages=[{"role": "user", "content": filler + " Reply: OK"}])
+        seen = getattr(resp.usage, "prompt_tokens", None)
+        if seen is not None and seen < 5000:
+            print(f"WARNING: the Ollama server is truncating prompts to "
+                  f"~{seen} tokens (system prompt is lost first; the agent "
+                  f"will misbehave on long sessions). Configure the server "
+                  f"with OLLAMA_CONTEXT_LENGTH=16384 -- ./setup.sh does this "
+                  f"automatically.")
+    except Exception:
+        pass   # the probe must never break a session
+
+
 # human-read (class + methods, except save_history which is model-read)
 class Agent:
     """
@@ -107,6 +139,7 @@ class Agent:
 
     def chat(self, user_message):
         """Run one turn through the tool loop and return the final answer."""
+        _warn_if_truncating(self.client, self.model)
         if self.message_hook:
             extra = self.message_hook(user_message)
             if extra:

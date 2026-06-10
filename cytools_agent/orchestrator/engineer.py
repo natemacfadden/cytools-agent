@@ -29,6 +29,7 @@
 import ast
 import json
 import os
+import re
 import time
 import urllib.request
 
@@ -122,6 +123,36 @@ if MAP_TOOLS_ENABLED:
     TOOL_CHEATSHEET += _MAP_CHEAT
     LEAN_CHEATSHEET += _MAP_CHEAT
 
+# A/B (CYTOOLS_SCHEMA_ACT): grammar-constrained act. Instead of advertising
+# act as a TOOL and hoping the model emits a well-formed tool_call, the reply
+# itself is decoded under this JSON Schema (Ollama structured outputs: the
+# schema compiles to a grammar that masks logits). The model is then PHYSICALLY
+# unable to reply with prose, an empty message, or a call missing `done`/
+# `intent` -- the failure modes the recovery machinery below exists for.
+# `reflection` is first so free-form interpretation has somewhere to go before
+# the constrained fields (a pressure valve against railroading).
+# Ollama-transport-specific BY DESIGN: a capable-model transport (e.g.
+# Anthropic tool use) keeps the tool-call path; the act protocol is the same.
+ACT_FORMAT = {
+    "type": "object",
+    "properties": {
+        "reflection": {"type": "string"},
+        "intent": {"type": "string", "minLength": 3},
+        "code": {"type": "string"},
+        "done": {"type": "boolean"},
+        "answer": {"type": "string"},
+    },
+    "required": ["intent", "code", "done"],
+}
+
+ENGINEER_SYSTEM_SCHEMA_NOTE = (
+    " Reply with EXACTLY ONE JSON act object per turn -- fields: reflection "
+    "(interpretation of the previous output; empty first), intent (what this "
+    "step does and why), code (Python to run now; empty string if only "
+    "finishing), done (true when the task is solved), answer (the concrete "
+    "result; set when done)."
+)
+
 # the engineer's one tool; hand-written so no dummy function is needed
 _ACT_SCHEMA = {
     "type": "function",
@@ -162,7 +193,12 @@ def _ollama_chat(model, messages, think, tools=None, as_json=False, label=""):
     OpenAI-compatible /v1 endpoint) honors `think`: think=False fully
     suppresses qwen3's chain-of-thought (~40x faster). Each call is timed and
     emitted as an `llm_call` event (label, seconds, think, prompt size) so per
-    call latency is visible. Returns the message dict."""
+    call latency is visible. Returns the message dict.
+
+    as_json: True -> Ollama JSON mode (well-formed JSON, no schema). A DICT ->
+    full structured output: Ollama compiles the JSON Schema to a decoding
+    grammar and masks logits, so the reply is GUARANTEED to be a valid
+    instance -- no prose, no missing required fields, no malformed JSON."""
     payload = {"model": model, "stream": False, "think": think,
                "messages": messages}
     # Ollama's vram-based default num_ctx (4096 here) SILENTLY truncates long
@@ -176,7 +212,9 @@ def _ollama_chat(model, messages, think, tools=None, as_json=False, label=""):
         payload["options"] = {"num_ctx": num_ctx}
     if tools:
         payload["tools"] = tools
-    if as_json:
+    if isinstance(as_json, dict):
+        payload["format"] = as_json          # schema-constrained decoding
+    elif as_json:
         payload["format"] = "json"
     req = urllib.request.Request(
         OLLAMA_BASE + "/api/chat", json.dumps(payload).encode(),
@@ -240,6 +278,31 @@ def _parse_json(text):
 # configuration); CYTOOLS_FINISH_FORGIVE=0 disables.
 from cytools_agent.tools.mapping import env_flag
 FINISH_FORGIVE = env_flag("CYTOOLS_FINISH_FORGIVE", default=True)
+# Schema-constrained act decoding (see ACT_FORMAT). DEFAULT ON since the
+# round-3 A/B (arm H: best single-run arm, fastest, kills the malformed/
+# empty/missing-done failure class); CYTOOLS_SCHEMA_ACT=0 disables.
+SCHEMA_ACT = env_flag("CYTOOLS_SCHEMA_ACT", default=True)
+# A/B: quantity lint -- when the dispatched step names a glossary quantity,
+# code that computes a DIFFERENT glossary quantity gets one pointed nudge
+# (observed drift: a "2-face genus" step computing curve_volumes). Default
+# OFF until the arm validates it.
+QUANTITY_LINT = env_flag("CYTOOLS_QUANTITY_LINT", default=False)
+
+
+def _quantity_nudge(code, expected):
+    """One-line correction if `code` touches another quantity's markers and
+    none of the expected ones; "" when there is nothing to flag."""
+    from cytools_agent.tools.glossary import ALL_MARKERS
+    toks = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", code or ""))
+    if not expected or toks & expected:
+        return ""
+    other = toks & (ALL_MARKERS - expected)
+    if not other:
+        return ""
+    return ("\n[quantity check: this step's quantity is computed via "
+            + ", ".join(sorted(expected)) + " -- your code uses "
+            + ", ".join(sorted(other)) + ", which computes a DIFFERENT "
+            "quantity. Re-read the step.]")
 
 
 def _scratchpad_finish():
@@ -269,14 +332,17 @@ def _act_args(msg):
     return fb["arguments"] if fb and "arguments" in fb else None
 
 
-def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
+def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False,
+                 expected=None):
     """Run the engineer to completion, streaming observations into `evidence`.
     Each coding step is one observation (ran_code/received_output captured from
     the real run; a non-empty intent is required; a finishing answer is
     rejected unless it appears in a real COMPUTED output). Returns
     (report, n_new_observations, ok) -- ok is False if it hit the step limit
     without finishing."""
-    messages = [{"role": "system", "content": ENGINEER_SYSTEM},
+    system = ENGINEER_SYSTEM + (ENGINEER_SYSTEM_SCHEMA_NOTE if SCHEMA_ACT
+                                else "")
+    messages = [{"role": "system", "content": system},
                 {"role": "user", "content": prompt}]
     # a stale finish variable from a previous round must not auto-finish this
     # one with the OLD answer
@@ -286,6 +352,7 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
     pending = {"o": None}
     n0 = len(evidence)
     nags = 0
+    nudged = [False]         # quantity lint fires at most once per round
     code_hist = []           # normalized ran_code this round, to catch loops
     t_llm = [0.0]
     n_llm = [0]
@@ -305,7 +372,11 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
             write_evidence(evidence)
 
     def tool_reply(out):
-        messages.append({"role": "tool", "tool_name": "act", "content": out})
+        if SCHEMA_ACT:   # no tool call to attach to; results return as user
+            messages.append({"role": "user", "content": f"[output]\n{out}"})
+        else:
+            messages.append({"role": "tool", "tool_name": "act",
+                             "content": out})
 
     def finish(report, ok):
         emit("engineer_timing", round=round_no, llm_calls=n_llm[0],
@@ -323,14 +394,21 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
         total += 1
         consumed += 1            # refunded below if this step's code errored
         _t = time.monotonic()
-        msg = _ollama_chat(model, messages, think, tools=[_ACT_SCHEMA],
-                           label=f"engineer.r{round_no}")
+        if SCHEMA_ACT:
+            # the reply IS the act object, guaranteed schema-valid by the
+            # decoding grammar -- no tool indirection, no recovery path
+            msg = _ollama_chat(model, messages, think, as_json=ACT_FORMAT,
+                               label=f"engineer.r{round_no}")
+        else:
+            msg = _ollama_chat(model, messages, think, tools=[_ACT_SCHEMA],
+                               label=f"engineer.r{round_no}")
         t_llm[0] += time.monotonic() - _t
         n_llm[0] += 1
         messages.append(msg)
 
-        args = _act_args(msg)
-        if args is None:                         # model skipped the tool
+        args = (_parse_json(msg.get("content")) if SCHEMA_ACT
+                else _act_args(msg))
+        if not args:                             # model skipped the tool
             messages.append({"role": "user", "content":
                 "You did not call `act`. You MUST call the act tool now with "
                 "concrete `code` to gather an observation -- not plain text."})
@@ -354,6 +432,11 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False):
             t_code[0] += time.monotonic() - _t
             if "Traceback (most recent call last)" in out:
                 consumed -= 1    # error + pointed feedback: recovery is free
+            if QUANTITY_LINT and expected and not nudged[0]:
+                q = _quantity_nudge(code, expected)
+                if q:           # one pointed correction per round, max
+                    out += q
+                    nudged[0] = True
             add({"intent": intent or "(none)", "ran_code": code,
                  "received_output": out, "interpretation": "",
                  "valid_python": valid_python(code)})

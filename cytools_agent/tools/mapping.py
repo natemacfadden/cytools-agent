@@ -59,6 +59,43 @@ _KINDS = {
 
 
 # human-read
+def _analyze_plot(xv, yv, kind):
+    """Facts about the plotted data the model cannot reliably read off a
+    figure: ranges, constant axes, correlation, outliers. Returned with the
+    figure path so the answer can state the RELATIONSHIP, not just that a
+    plot exists (observed: a technically-correct scatter of constant-y data
+    reported with no mention that there was no relationship to see)."""
+    import math
+
+    def stats1(vals, name):
+        out = {f"{name}_min": min(vals), f"{name}_max": max(vals)}
+        if len(set(vals)) == 1:
+            out[f"{name}_is_constant"] = True
+        return out
+
+    a = {"n": len(xv), **stats1(xv, "x")}
+    if yv is not None:
+        a.update(stats1(yv, "y"))
+        n = len(xv)
+        if (n >= 3 and len(set(xv)) > 1 and len(set(yv)) > 1
+                and kind in ("scatter", "line")):
+            mx, my = sum(xv) / n, sum(yv) / n
+            sxy = sum((x - mx) * (y - my) for x, y in zip(xv, yv))
+            sxx = sum((x - mx) ** 2 for x in xv)
+            syy = sum((y - my) ** 2 for y in yv)
+            a["pearson_r"] = round(sxy / math.sqrt(sxx * syy), 3)
+    # outliers on each axis: |z| > 3
+    for name, vals in (("x", xv), ("y", yv or [])):
+        if len(vals) >= 4 and len(set(vals)) > 1:
+            m = sum(vals) / len(vals)
+            sd = (sum((v - m) ** 2 for v in vals) / len(vals)) ** 0.5
+            outs = sorted({v for v in vals if sd and abs(v - m) / sd > 3})
+            if outs:
+                a[f"{name}_outliers"] = outs[:5]
+    return a
+
+
+# human-read
 def _as_id_list(ks_inds):
     """Accept what the model actually passes: a list of ids (canonical), a
     single id string, or a dict holding the fetch result."""
@@ -224,7 +261,10 @@ def make_plot(kind: str, x: str | list, y: str | list | None = None,
     Returns
     -------
     str
-        Confirmation with the saved figure path.
+        Confirmation with the saved figure path, plus computed facts about
+        the plotted data (ranges, constant axes, correlation, outliers) --
+        USE these to describe the relationship in your answer instead of
+        guessing from the figure.
     """
     plt = _code.plt
     if plt is None:
@@ -274,7 +314,9 @@ def make_plot(kind: str, x: str | list, y: str | list | None = None,
     if title:
         ax.set_title(title)
     note = _code._save_open_figures()
-    return "figure built." + note
+    analysis = _analyze_plot(xv, yv, k)
+    return (f"figure built.{note}\n[data facts -- use these to DESCRIBE the "
+            f"relationship in your answer: {analysis}]")
 
 
 # DEFAULT ON since the 2026-06-10 A/B (orchestrator 0/12 -> 4-6/12; the only

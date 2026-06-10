@@ -8,12 +8,18 @@ An agent loop and tool harness that lets a local LLM (via [Ollama](https://ollam
 ## Installation
 
 ```sh
-./setup.sh   # creates the conda env, installs Ollama, pulls the default model
+./setup.sh   # conda env + Ollama as an always-on service + default model
 conda activate cytools-agent
 jupyter lab
 ```
 
 Open `notebooks/demo.ipynb` with the **Python (cytools-agent)** kernel.
+
+`setup.sh` is idempotent (safe to re-run) and sets Ollama up as a **system
+service** -- it starts on boot, restarts on crashes, and is configured with
+the 16k context window the agent needs (one `sudo` prompt on Linux for the
+service config; Homebrew services on macOS). After setup there is nothing to
+start or remember: open the notebook and ask questions.
 
 ## Usage
 
@@ -175,13 +181,46 @@ python -m eval.eval_single_pm qwen3:8b --ids 3,4,6,9 --reps 3
 python -m eval.eval_orch --corpus eval/ladder.jsonl --reps 3
 ```
 
+## Under the hood
+
+Everything below is reference material for tinkering or debugging -- normal
+use never needs it (`setup.sh` configures all of it).
+
+### Orchestrator scaffolding for weak models (default-on, env-gated)
+
+The two-agent orchestrator (`cytools_agent/orchestrator/`) wraps the same
+tools in scaffolding that A/B-measurably lifts small local models (qwen3:8b:
+0/12 -> ~40% single-run, ~80% voted, on the hard plot corpus). Each piece is
+a separate flag, on by default, `=0` to disable -- so a capable model (or a
+debugging session) can shed any layer:
+
+| Flag | What it does |
+|---|---|
+| `CYTOOLS_SCHEMA_ACT` | Engineer/plan replies decoded under a JSON Schema (Ollama structured outputs), so malformed, empty, or finish-less replies cannot be sampled at all. |
+| `CYTOOLS_PIPELINE` | Questions fitting fetch -> per-item map -> reduce -> plot are compiled (one constrained call) into a typed spec the harness executes deterministically; misfits fall back to the normal plan-and-walk. |
+| `CYTOOLS_MAP_TOOLS` | `compute_for_each` / `make_plot` (also exposed over MCP). |
+| `CYTOOLS_FINISH_FORGIVE` | Accept `answer = ...` scratchpad assignment as the step finish signal (grounding still enforced). |
+| `CYTOOLS_NUM_CTX` | Per-request context size (default 16384; `0` = server default). |
+| `CYTOOLS_QUANTITY_LINT` | Opt-in (default off): nudge when code computes a different glossary quantity than the step names. |
+
+For research questions, `run_session_voted(q, votes=3)` (or `eval_orch
+--votes 3`) runs independent sessions and accepts the answer only when the
+final numbers agree -- ~3x wall clock for the biggest reliability lift;
+disagreement is reported as LOW CONFIDENCE rather than silently picked.
+
+The full A/B record (what each flag bought, with per-arm scores and the
+honest caveats) is in `scratch/AB_RESULTS.md`.
+
 ### Local-model gotchas (measured)
 
-Ollama's vram-based default context (4096 here) **silently front-truncates**
-long prompts -- the system prompt is lost first. The orchestrator's native
-transport now requests `num_ctx=16384` by default (`CYTOOLS_NUM_CTX`
-overrides; `0` = server default); the OpenAI-compatible path the single agent
-uses cannot set it per request, so start the server with
-`OLLAMA_CONTEXT_LENGTH=16384`. Newer qwen3 builds may also return an EMPTY
-`content` with the thinking in a separate `reasoning` field; the agent loop
-nudges instead of returning an empty answer.
+Ollama's vram-based default context (often 4096) **silently front-truncates**
+long prompts -- the system prompt is lost first and the model appears to go
+stupid. `setup.sh` bakes `OLLAMA_CONTEXT_LENGTH=16384` into the service
+config, and the orchestrator's native transport additionally requests
+`num_ctx=16384` per call (`CYTOOLS_NUM_CTX` overrides; `0` = server default).
+The OpenAI-compatible path the single agent uses *cannot* set it per request,
+which is why the service-level setting matters: if you run an Ollama server
+that setup.sh did not configure, the agent warns when it detects truncation.
+Newer qwen3 builds may also return an EMPTY `content` with the thinking in a
+separate `reasoning` field; the agent loop nudges instead of returning an
+empty answer.
