@@ -100,12 +100,25 @@ _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool, "ids": [...]}.
               # as the day's runs polluted the cache, flipping its answer).
 
 # Optional on-disk persistence of the (real) fetched polytopes, so repeated
-# runs do not re-hit the Kreuzer-Skarke database. First fetch is genuine; later
-# runs read from disk. Set CYTOOLS_AGENT_KS_CACHE="" to disable.
+# runs do not re-hit the Kreuzer-Skarke database. A DEVELOPMENT feature,
+# DISABLED by default: it grows without bound (measured: 33 MB in a day of
+# eval work) and end users should not accumulate that silently. Opt in by
+# setting CYTOOLS_AGENT_KS_CACHE to a file path -- the eval harnesses do
+# (they re-run the same queries constantly and the savings are large). The
+# in-process memory cache always works either way, and the politeness guards
+# (_ks_guard) bound the database load of cacheless sessions.
 _REPO = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_DISK = os.environ.get("CYTOOLS_AGENT_KS_CACHE",
-                       os.path.join(_REPO, "scratch", "ks_cache.json"))
+_DISK = os.environ.get("CYTOOLS_AGENT_KS_CACHE", "")
+
+
+# Cache format version. Bumped when the id-assignment semantics change; the
+# loader and the merge REFUSE data from any other version, so a long-running
+# process with older code in memory (a stale Jupyter kernel, an old MCP
+# server) can clobber the file but can never silently poison a new process
+# -- measured: a stale writer relabeled ids onto different geometry and
+# flipped 8 corpus answers.
+_FORMAT = 2
 
 
 # human-read
@@ -117,6 +130,8 @@ def _load_disk_cache():
             d = json.load(f)
     except (OSError, ValueError):
         return
+    if d.get("format") != _FORMAT:
+        return                      # other-era data: ignore it entirely
     _CACHE.update(d.get("cache", {}))
     for k, v in d.get("fetched", {}).items():
         try:                       # a malformed/corrupt entry must not break import
@@ -143,6 +158,8 @@ def _save_disk_cache():
             try:
                 with open(_DISK) as f:
                     d = json.load(f)
+                if d.get("format") != _FORMAT:
+                    d = {}          # never merge other-era data
                 _CACHE.update({k: v for k, v in d.get("cache", {}).items()
                                if k not in _CACHE})
                 for k, v in d.get("fetched", {}).items():
@@ -163,7 +180,8 @@ def _save_disk_cache():
         fetched = {f"{h11},{'' if h21 is None else h21}": v
                    for (h11, h21), v in _FETCHED.items()}
         with open(_DISK, "w") as f:
-            json.dump({"cache": _CACHE, "fetched": fetched}, f)
+            json.dump({"format": _FORMAT, "cache": _CACHE,
+                       "fetched": fetched}, f)
     except OSError:
         pass
 
@@ -412,27 +430,53 @@ def get_polytope_info(ks_ind: str) -> dict:
         divisors whose dual face has no interior points), genera_2face (the
         genus of each 2-face, sorted descending; sum/max are common asks), and
         facedim_to_nfaces (a dict from face dimension d to HOW MANY d-faces
-        there are; in 4d the 3-faces are the facets).
+        there are; in 4d the 3-faces are the facets). A field that is not
+        defined for this polytope (e.g. Hodge numbers of a 2d subpolytope) is
+        OMITTED rather than raising; dim is always present.
     """
     p = get_polytope(ks_ind)
-    h11, h21 = int(p.h11(lattice="N")), int(p.h21(lattice="N"))
-    return _InfoDict({
-        "h11": h11,
-        "h21": h21,
-        "euler_characteristic": 2 * (h11 - h21),
-        "favorable_N": bool(p.is_favorable(lattice="N")),
-        "favorable_M": bool(p.is_favorable(lattice="M")),
-        "is_trilayer": bool(p.is_trilayer()),
-        "automorphism_order": len(p.automorphisms()),
+
+    # graceful degradation: the tool also accepts raw Polytope objects (e.g.
+    # a 2d reflexive subpolytope), for which several fields are undefined --
+    # Hodge numbers and the CY-flavored fields are 4d notions, automorphisms
+    # need full dimension. Compute what is meaningful, omit the rest; the
+    # _InfoDict missing-key error names what IS available.
+    def opt(compute):
+        try:
+            return compute()
+        except Exception:
+            return None
+
+    # dimension-generic fields: meaningful for any lattice polytope
+    fields = {
+        "dim": int(p.dim()),
         "n_points": len(p.points()),
         "n_points_interior_to_facets": len(p.points_interior_to_facets()),
         "n_vertices": len(p.vertices()),
-        "n_rigid_divisors": _n_rigid_divisors(p),
-        "genera_2face": _genera_2face(p),
         "facedim_to_nfaces": {
             d: len(p.faces(d)) for d in range(p.dim() + 1)
         },
-    })
+        "automorphism_order": opt(lambda: len(p.automorphisms())),
+    }
+    # CY-flavored fields: 4d notions ONLY. cytools evaluates some of these
+    # off-domain without raising (a 2d polytope reports h11=0), so an
+    # exception guard is not enough -- gate on the dimension explicitly.
+    if p.dim() == 4:
+        h11 = opt(lambda: int(p.h11(lattice="N")))
+        h21 = opt(lambda: int(p.h21(lattice="N")))
+        fields.update({
+            "h11": h11,
+            "h21": h21,
+            "euler_characteristic": (2 * (h11 - h21)
+                                     if h11 is not None and h21 is not None
+                                     else None),
+            "favorable_N": opt(lambda: bool(p.is_favorable(lattice="N"))),
+            "favorable_M": opt(lambda: bool(p.is_favorable(lattice="M"))),
+            "is_trilayer": opt(lambda: bool(p.is_trilayer())),
+            "n_rigid_divisors": opt(lambda: _n_rigid_divisors(p)),
+            "genera_2face": opt(lambda: _genera_2face(p)),
+        })
+    return _InfoDict({k: v for k, v in fields.items() if v is not None})
 
 # human-read
 def _n_rigid_divisors(p: cytools.Polytope) -> int:

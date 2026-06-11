@@ -44,6 +44,11 @@ import time
 # the cytools_agent imports read it (setdefault: deliberate overrides still
 # work, e.g. CYTOOLS_EXAMPLE_SEED=3 to study example sensitivity).
 os.environ.setdefault("CYTOOLS_EXAMPLE_SEED", "0")
+# evals re-run identical queries constantly: opt in to the on-disk KS cache
+# (a dev feature, off by default so end users don't accumulate a large file)
+os.environ.setdefault("CYTOOLS_AGENT_KS_CACHE", os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "scratch", "ks_cache.json"))
 
 # local imports
 from cytools_agent.orchestrator import (run_session, run_session_voted,

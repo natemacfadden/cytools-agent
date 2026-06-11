@@ -233,6 +233,7 @@ debugging session) can shed any layer:
 | `CYTOOLS_FINISH_FORGIVE` | Accept `answer = ...` scratchpad assignment as the step finish signal (grounding still enforced). |
 | `CYTOOLS_NUM_CTX` | Per-request context size (default 16384; `0` = server default). |
 | `CYTOOLS_QUANTITY_LINT` | Opt-in (default off): nudge when code computes a different glossary quantity than the step names. |
+| `CYTOOLS_AGENT_KS_CACHE` | Opt-in (default off): path for persisting fetched polytopes across runs. A development feature -- it grows large (tens of MB); the eval harnesses enable it, end users should not need it (in-memory caching plus the database rate-limits cover normal use). |
 
 For research questions, `run_session_voted(q, votes=3)` (or `eval_orch
 --votes 3`) runs independent sessions and accepts the answer only when the
