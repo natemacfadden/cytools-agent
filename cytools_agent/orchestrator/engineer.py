@@ -89,20 +89,6 @@ TOOL_CHEATSHEET = (
     "min(min(r['curve_volumes']) for r in result))."
 )
 
-# Lean variant for the A/B: just the signatures (the "do not guess" caveats are
-# now enforced by the tools' own feedback -- arg-order reminder, empty-fetch).
-LEAN_CHEATSHEET = (
-    "Callable signatures:\n"
-    "  fetch_polytopes(limit, h11, h21=None, favorable=None) -> list of ids\n"
-    "  ks_stats(h11, h21=None) -> {count, exists, h21_values}\n"
-    "  get_polytope_info(ks_ind) -> dict\n"
-    "  get_heights(ks_ind, n=None, kind='NTFE') -> {shape, heights}\n"
-    "  get_cy(ks_ind, heights=None) -> a CY (or a list for many heights)\n"
-    "  get_cy_info(ks_ind, heights=None, t=None, cone='Kcup') -> dict or list; "
-    "t='tip' adds cy_volume, curve_volumes, divisor_volumes\n"
-    "  get_cy_cones(ks_ind, heights=None, cone='Kcup') -> {mori_rays, "
-    "kahler_cone_hyperplanes}"
-)
 
 # A/B (CYTOOLS_MAP_TOOLS): harness-side iteration + plotting. The cheatsheet
 # must advertise them or the engineer cannot know they exist. (Defined AFTER
@@ -131,7 +117,6 @@ _MAP_CHEAT = (
 from cytools_agent.tools.mapping import MAP_TOOLS_ENABLED
 if MAP_TOOLS_ENABLED:
     TOOL_CHEATSHEET += _MAP_CHEAT
-    LEAN_CHEATSHEET += _MAP_CHEAT
 
 # A/B (CYTOOLS_SCHEMA_ACT): grammar-constrained act. Instead of advertising
 # act as a TOOL and hoping the model emits a well-formed tool_call, the reply
@@ -292,27 +277,6 @@ FINISH_FORGIVE = env_flag("CYTOOLS_FINISH_FORGIVE", default=True)
 # round-3 A/B (arm H: best single-run arm, fastest, kills the malformed/
 # empty/missing-done failure class); CYTOOLS_SCHEMA_ACT=0 disables.
 SCHEMA_ACT = env_flag("CYTOOLS_SCHEMA_ACT", default=True)
-# A/B: quantity lint -- when the dispatched step names a glossary quantity,
-# code that computes a DIFFERENT glossary quantity gets one pointed nudge
-# (observed drift: a "2-face genus" step computing curve_volumes). Default
-# OFF until the arm validates it.
-QUANTITY_LINT = env_flag("CYTOOLS_QUANTITY_LINT", default=False)
-
-
-def _quantity_nudge(code, expected):
-    """One-line correction if `code` touches another quantity's markers and
-    none of the expected ones; "" when there is nothing to flag."""
-    from cytools_agent.tools.glossary import ALL_MARKERS
-    toks = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", code or ""))
-    if not expected or toks & expected:
-        return ""
-    other = toks & (ALL_MARKERS - expected)
-    if not other:
-        return ""
-    return ("\n[quantity check: this step's quantity is computed via "
-            + ", ".join(sorted(expected)) + " -- your code uses "
-            + ", ".join(sorted(other)) + ", which computes a DIFFERENT "
-            "quantity. Re-read the step.]")
 
 
 def _scratchpad_finish():
@@ -342,8 +306,8 @@ def _act_args(msg):
     return fb["arguments"] if fb and "arguments" in fb else None
 
 
-def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False,
-                 expected=None):
+def run_engineer(model, evidence, round_no, prompt, max_steps=14,
+                 think=False):
     """Run the engineer to completion, streaming observations into `evidence`.
     Each coding step is one observation (ran_code/received_output captured from
     the real run; a non-empty intent is required; a finishing answer is
@@ -362,7 +326,6 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False,
     pending = {"o": None}
     n0 = len(evidence)
     nags = 0
-    nudged = [False]         # quantity lint fires at most once per round
     code_hist = []           # normalized ran_code this round, to catch loops
     t_llm = [0.0]
     n_llm = [0]
@@ -442,11 +405,6 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14, think=False,
             t_code[0] += time.monotonic() - _t
             if "Traceback (most recent call last)" in out:
                 consumed -= 1    # error + pointed feedback: recovery is free
-            if QUANTITY_LINT and expected and not nudged[0]:
-                q = _quantity_nudge(code, expected)
-                if q:           # one pointed correction per round, max
-                    out += q
-                    nudged[0] = True
             add({"intent": intent or "(none)", "ran_code": code,
                  "received_output": out, "interpretation": "",
                  "valid_python": valid_python(code)})

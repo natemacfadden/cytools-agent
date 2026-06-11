@@ -40,8 +40,11 @@ import re
 from cytools_agent.tools import polytope
 from cytools_agent.tools.glossary import (ALL_MARKERS, expected_by_term,
                                           glossary_context)
-from cytools_agent.tools.mapping import (compute_for_each, env_flag,
-                                         make_plot)
+from cytools_agent.tools.mapping import env_flag
+# the ledgered versions (cytools_agent.tools wraps them), so pipeline stages
+# write backbone rows like any other caller
+from cytools_agent.tools import (compute_for_each, fetch_polytopes,
+                                 make_plot)
 from cytools_agent.orchestrator.evidence import emit
 
 # DEFAULT ON since the round-3 A/B (arm J2: best computed-correctness,
@@ -360,13 +363,15 @@ def compile_pipeline(pm, direct, cheatsheet, context=""):
 
 def _run_search(spec, evidence):
     """Execute a search-mode spec; compose the answer WITH its epistemics."""
-    from cytools_agent.tools.mapping import search_polytopes
+    from cytools_agent.tools import search_polytopes
+    from cytools_agent.tools import ledger
     s = spec["search"]
     kw = {k: s[k] for k in ("objective", "h11_max", "h11_min")
           if s.get(k) is not None}
     if s.get("map"):
         kw["helpers"] = s["map"]
     r = search_polytopes(s["condition"], **kw)
+    search_row = ledger.last_id()
     _obs(evidence, "pipeline search",
          f"search_polytopes({s['condition']!r}, helpers={s.get('map')!r}, "
          f"objective={s.get('objective')!r})", r)
@@ -381,13 +386,42 @@ def _run_search(spec, evidence):
                     and c["hits"] == 0]
     return (f"Confirmed: h11 = {r['best_h11']} admits a qualifying polytope "
             f"-- witness {r['witness']} ({r['n_hits_at_best']} found at that "
-            f"level). Levels with no qualifying polytope found: "
+            f"level) [ledger row {search_row}]. Levels with no qualifying polytope found: "
             f"exhaustively checked {exhausted or 'none'}; prefix-checked "
             f"only (absence NOT proven) {prefix_empty or 'none'}. "
             f"{r['queries_used']} database queries used. "
             f"So {r['best_h11']} is a confirmed lower bound for the "
             f"objective; levels above it were checked only partially unless "
             f"listed as exhaustive.")
+
+
+class InvariantViolation(Exception):
+    """Computed data failed a machine-checked identity. not a compile
+    problem: falling back to the free-form walk would compute on the same
+    bad data, so the caller must surface this honestly instead."""
+
+
+def _audit_sample(ids, evidence, k=3):
+    """Post-execution audit: run the polytope invariant suite on a small
+    sample of the ids just used. Catches wrong-formula computation, corrupted
+    geometry, and cytools regressions (content-ids cover relabeling)."""
+    import random
+    from cytools_agent.tools.invariants import run_polytope_invariants
+    sample = random.sample(list(ids), k=min(k, len(ids)))
+    bad = {}
+    for ks in sample:
+        res = run_polytope_invariants(polytope.get_polytope(ks))
+        viols = {n: v for n, v in res.items()
+                 if v is not True and v != "n/a"}
+        if viols:
+            bad[str(ks)] = viols
+    _obs(evidence, "pipeline invariant audit",
+         f"run_polytope_invariants over sample {[str(s) for s in sample]}",
+         bad or "all invariants hold")
+    if bad:
+        raise InvariantViolation(
+            f"computed data FAILED machine-checked identities: {bad}. "
+            f"Refusing to answer from this data.")
 
 
 def run_pipeline(spec, evidence):
@@ -407,7 +441,7 @@ def run_pipeline(spec, evidence):
         h11s = f["h11"] if isinstance(f["h11"], list) else [f["h11"]]
         ids = []
         for h in h11s:                  # limit is PER h11
-            ids += polytope.fetch_polytopes(
+            ids += fetch_polytopes(
                 limit=f["limit"], h11=h, h21=f.get("h21"),
                 favorable=f.get("favorable"))
         _obs(evidence, "pipeline fetch",
@@ -415,11 +449,15 @@ def run_pipeline(spec, evidence):
              f"h21={f.get('h21')!r}, favorable={f.get('favorable')!r})",
              f"{len(ids)} ids: {list(ids[:5])}...")
 
+    from cytools_agent.tools import ledger
     r = compute_for_each(ids, spec["map"])
+    map_row = ledger.last_id()    # the harness-written backbone row for the
+                                  # map call -- cited next to derived numbers
     _obs(evidence, "pipeline map",
          f"compute_for_each(ids, {spec['map']!r})", r)
     if r["n_ok"] < max(2, r["n_requested"] // 2):
         raise RuntimeError(f"map failed on most items: {r.get('errors')}")
+    _audit_sample(_code._NS["ok_ids"], evidence)
 
     # this turn's map columns, plus stored numeric columns from previous
     # turns (validated against the same union)
@@ -445,7 +483,8 @@ def run_pipeline(spec, evidence):
         val = _reduce(red["op"], cols[red["of"]], ok_ids)
         _obs(evidence, f"pipeline reduce {red['name']}",
              f"{red['op']}({red['of']})", val)
-        parts.append(f"{red['name']} ({red['op']} of {red['of']}): {val}.")
+        parts.append(f"{red['name']} ({red['op']} of {red['of']}): {val} "
+                     f"[ledger row {map_row}].")
 
     for p in spec.get("plot") or []:
         note = make_plot(kind=p["kind"], x=p["x"], y=p.get("y"),
@@ -496,6 +535,15 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
     log("[pipeline spec]", str(spec))
     try:
         return run_pipeline(spec, evidence)
+    except InvariantViolation as e:
+        # bad DATA, not a bad spec: the walk would recompute on the same
+        # data, so answer honestly instead of falling back
+        log("[pipeline: invariant violation -- refusing]", str(e))
+        emit("pipeline", fits=True, invariant_violation=str(e)[:300])
+        return (f"Cannot answer: {e} This indicates corrupted cached data "
+                f"or a computation bug -- the result would not be "
+                f"trustworthy. (Machine-checked; no model judgment "
+                f"involved.)")
     except Exception as e:
         # a spec that VALIDATED but raised at runtime (e.g. a hallucinated
         # field in a search condition) gets ONE recompile with the error --

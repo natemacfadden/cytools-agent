@@ -32,9 +32,9 @@ import time
 
 # local imports
 from cytools_agent.tools import code as _code
-from cytools_agent.tools.glossary import expected_markers, glossary_context
+from cytools_agent.tools.glossary import glossary_context
 from cytools_agent.orchestrator.engineer import (SCHEMA_ACT, TOOL_CHEATSHEET,
-                                                 LEAN_CHEATSHEET, _ollama_chat,
+                                                 _ollama_chat,
                                                  _parse_json, run_engineer)
 
 # A/B (rides CYTOOLS_SCHEMA_ACT): grammar-constrained plan -- the decoder
@@ -49,7 +49,8 @@ _PLAN_FORMAT = {
                   "required": ["do", "produce"]}}},
     "required": ["todo"],
 }
-from cytools_agent.orchestrator.evidence import (emit, render_evidence,
+from cytools_agent.orchestrator.evidence import (backing, emit,
+                                                 render_evidence,
                                                  reset_evidence, reset_session,
                                                  save_log, write_evidence)
 from cytools_agent.orchestrator.pipeline import PIPELINE, try_pipeline
@@ -459,6 +460,18 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     pm = ProjectManager(model, think=pm_think, plan_think=plan_think)
     evidence = []   # cumulative across rounds; streamed to the file live
 
+    # the evidence backbone: every curated-tool call this session makes
+    # (pipeline stages, engineer code, anything) streams its harness-written
+    # ledger row into the same evidence log, as kind="tool_call" rows that
+    # no model authors
+    from cytools_agent.tools import ledger
+    ledger.reset()
+
+    def _sink(row):
+        evidence.append(dict(row))
+        write_evidence(evidence)
+    ledger.set_sink(_sink)
+
     emit("active", who="PM", phase="translating the request")
     direct = pm.translate(user_message, context=context)
     log("[PM direct speech]", direct)
@@ -506,19 +519,14 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
         log(f"[dispatch -- round {rnd[0]}]", step_str)
         emit("dispatch", round=rnd[0], task=step_str,
              plan=[_step_text(s) for s in todo])
-        # A/B (CYTOOLS_LEAN_PROMPT): lean trims the per-turn scaffolding so the
-        # signal (step + recipe) isn't buried -- condensed cheatsheet, recipe-
-        # only glossary, and only the last few observations.
-        lean = bool(os.environ.get("CYTOOLS_LEAN_PROMPT"))
-        cheatsheet = LEAN_CHEATSHEET if lean else TOOL_CHEATSHEET
-        gloss = glossary_context(step_str, recipe_only=lean) or ""
-        ev = render_evidence(last=3) if lean else render_evidence()
+        gloss = glossary_context(step_str) or ""
+        ev = render_evidence()
         # STANDARDIZED dispatch: a fixed form built from the SELF-CONTAINED
         # structured step (DO / PRODUCE). No overall GOAL -- showing the whole
         # question made the engineer overshoot the step (solve everything, then
         # get flagged off-step) and just added text; the {do, produce} step
         # carries what this step needs.
-        prompt = (f"{cheatsheet}\n\n{ev}\n\n"
+        prompt = (f"{TOOL_CHEATSHEET}\n\n{ev}\n\n"
                   f"[variables already in the scratchpad: "
                   f"{_code.namespace_summary()}]\n\n"
                   f"STEP {idx}/{n_steps} -- DO: {do}"
@@ -527,8 +535,7 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
         emit("active", who="engineer", phase="working", round=rnd[0])
         n_before = len(evidence)
         report, n_new, ok = run_engineer(
-            model, evidence, rnd[0], prompt, think=eng_think,
-            expected=expected_markers(step_str))
+            model, evidence, rnd[0], prompt, think=eng_think)
         new_obs = evidence[n_before:]      # this dispatch's observations
         log("[engineer report]", report)
         emit("engineer_report", round=rnd[0], report=report, n_obs=n_new, ok=ok)
@@ -602,6 +609,20 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
             msg = redraft
         else:
             msg += f"\n\n(verification -- possibly incomplete: {missing})"
+    # backbone backing: classify how the answer's numbers are supported --
+    # tool-call rows (harness-recorded, model could not author) vs free-form
+    # printed output (authentic but model-shaped)
+    label, rows_used = backing(msg, evidence)
+    emit("backing", label=label, rows=rows_used)
+    if label == "row-backed":
+        msg += (f"\n\n(evidence: every number is backed by harness-recorded "
+                f"tool calls, ledger rows {rows_used})")
+    elif label == "stdout-backed":
+        msg += ("\n\n(evidence: backed by free-form printed output only -- "
+                "weaker than tool-call backing; treat with care)")
+    elif label == "unbacked":
+        msg += ("\n\n(evidence: contains numbers NOT found in any captured "
+                "output -- do not trust them)")
     log("[PM -> user]", msg)
     emit("respond", message=msg)
     emit("active", who="none", phase="done")

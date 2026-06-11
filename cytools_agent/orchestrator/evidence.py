@@ -105,6 +105,14 @@ def render_evidence(path=EVIDENCE_PATH, last=None):
     start = len(obs) - len(shown)
     out = []
     for i, o in enumerate(shown, start + 1):
+        if o.get("kind") == "tool_call":
+            # backbone row: harness-recorded call + structured result
+            res = str(o.get("result", ""))
+            if len(res) > _RENDER_CAP // 2:
+                res = res[:_RENDER_CAP // 2] + " ...(truncated)"
+            out.append(f"#{i} [tool] {o.get('tool')}({o.get('args', '')}) "
+                       f"-> {res}")
+            continue
         recv = o.get("received_output", "")
         if len(recv) > _RENDER_CAP:
             recv = recv[:_RENDER_CAP] + " ...(truncated)"
@@ -203,6 +211,55 @@ _FIG_ANS_RE = re.compile(
     r"\.(?:png|pdf|svg)\b|\b(?:plot|figure|chart|scatter|histogram)\b", re.I)
 
 
+def _nums_canon(text):
+    """Numbers in `text`, canonicalized ('21.' == '21' == '21.0') -- the raw
+    regex captures sentence-ending periods, which caused false mismatches.
+    Polytope-id tokens are stripped first: 'h11-3_h21-43_ind-0' must not
+    shed 3/43/0 (or the 11/21 of its field names) into the number set."""
+    text = re.sub(r"h11-\d+_h21-\d+_ind-\d+", " ", text or "")
+    text = re.sub(r"\bh(11|21)\b", " ", text)
+    out = set()
+    for n in re.findall(r"-?\d+\.?\d*", text):
+        try:
+            out.add(f"{float(n):g}")
+        except ValueError:
+            pass
+    return out
+
+
+def backing(answer, observations):
+    """How well the evidence BACKBONE supports this answer's numbers:
+    'row-backed' when every number in the answer appears in some tool_call
+    row's harness-recorded result (the model could not have authored it);
+    'stdout-backed' when at least one number is grounded only in free-form
+    printed output (authentic but model-shaped); 'unbacked' otherwise.
+    Returns (label, rows_used)."""
+    nums = _nums_canon(_FIG_ANS_RE.sub(" ", answer or ""))
+    if not nums:
+        return "no-numeric-claims", []
+    rows_used = set()
+    stdout_needed = False
+    for n in nums:
+        in_row = False
+        for o in observations:
+            if o.get("kind") != "tool_call":
+                continue
+            if n in _nums_canon(str(o.get("result", ""))):
+                rows_used.add(o.get("row", -1))
+                in_row = True
+                break
+        if not in_row:
+            found = any(
+                n in _nums_canon(str(o.get("received_output", "")))
+                for o in observations if o.get("kind") != "tool_call")
+            if found:
+                stdout_needed = True
+            else:
+                return "unbacked", sorted(rows_used)
+    label = "stdout-backed" if stdout_needed else "row-backed"
+    return label, sorted(rows_used)
+
+
 def grounded(answer, observations):
     """True if the answer is backed by real, harness-captured ground truth.
     A PLOT/FILE deliverable (the answer names a figure) is grounded by a real
@@ -214,14 +271,14 @@ def grounded(answer, observations):
         for o in observations:                 # figure IS the ground truth
             if _FIG_SAVE_RE.search(str(o.get("received_output", ""))):
                 return True
-    nums = re.findall(r"-?\d+\.?\d*", answer)
-    target = nums[-1] if nums else answer.strip()[:60]
+    raw = re.findall(r"-?\d+\.?\d*", answer)
+    target = (f"{float(raw[-1]):g}" if raw       # canonical: '21.' == '21'
+              else answer.strip()[:60])
     if not target:
         return False
     for o in observations:
         out = str(o.get("received_output", ""))
-        present = (target in set(re.findall(r"-?\d+\.?\d*", out))) if nums \
-            else (target in out)
+        present = (target in _nums_canon(out)) if raw else (target in out)
         if present and not _prints_only_literals(o.get("ran_code", "")):
             return True
     return False

@@ -3,6 +3,11 @@
 How a question becomes an answer: the enforced message formats first, then the
 check layers. File references are to this package unless noted.
 
+The trust model behind every design choice here: models are treated as
+trying to be helpful but untrustworthy. Model output is claim; only
+harness-captured execution is evidence; no claim reaches the user unverified
+where a verification exists.
+
 ## Actors and channels
 
 There is one model (the `model` argument, e.g. qwen3:8b). "PM" and
