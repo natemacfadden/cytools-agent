@@ -60,6 +60,18 @@ print(run_session("Among the first 100 polytopes at h11=3, plot the "
                   "the mean."))
 ```
 
+Questions can sweep Hodge numbers ("at each h11 in [2,10]"), ask for
+SEVERAL figures at once, color a scatter by a third quantity, overlay
+histograms by category, and use log axes. For a conversation -- follow-ups
+that build on what a previous question fetched -- use the stateful chat:
+
+```python
+from cytools_agent.orchestrator import OrchestratorChat
+chat = OrchestratorChat(model="qwen3:8b")
+chat.chat("Fetch the first 25 polytopes at h11=3 and their NTFE counts.")
+chat.chat("Now scatter those counts against the polytopes' h21 values.")
+```
+
 **Watch it live:** `python -m cytools_agent.viewer` then open
 http://127.0.0.1:8765 -- the plan, each step's code and real output, and
 figures render as the session runs; archived sessions are browsable there

@@ -154,9 +154,17 @@ class ProjectManager:
             as_json=schema or True, label=label)
         return _parse_json(msg.get("content"))
 
-    def translate(self, user_message):
-        """Restate the request plainly, UNPACKING jargon via the glossary."""
+    def translate(self, user_message, context=""):
+        """Restate the request plainly, UNPACKING jargon via the glossary.
+        `context` (prior turns + stored variables) lets a follow-up's
+        references ('them', 'the same polytopes') be restated concretely."""
         gloss = glossary_context(user_message) or ""
+        if context:
+            user_message_in = (f"{context}\n\nNEW REQUEST (restate THIS, "
+                               f"resolving its references against the "
+                               f"conversation above):\n{user_message}")
+        else:
+            user_message_in = user_message
         instr = (
             "Restate the user's request in plainer, more direct words an "
             "engineer can act on, in AT MOST 3 sentences. Only RESTATE it: do "
@@ -167,11 +175,13 @@ class ProjectManager:
             "ranges or limits ('each h21' means every h21 that occurs, not a "
             'made-up range). Reply as JSON {"direct_speech": "..."}.')
         out = self._json(instr + ("\n\n" + gloss if gloss else ""),
-                         user_message, label="PM.translate")
+                         user_message_in, label="PM.translate")
         direct = out.get("direct_speech", "")
         # a runaway restatement (the model reasoning in-content instead of just
         # restating) is long and poisons planning -- fall back to the request
-        if not direct or len(direct) > 2 * len(user_message) + 200:
+        # (with context the budget is looser: resolved references add words)
+        budget = 2 * len(user_message) + (600 if context else 200)
+        if not direct or len(direct) > budget:
             return user_message
         return direct
 
@@ -305,6 +315,59 @@ class ProjectManager:
         return bool(out.get("complete", True)), str(out.get("missing") or "").strip()
 
 
+class OrchestratorChat:
+    """Stateful multi-turn orchestrator. Each .chat() runs a full PM+engineer
+    session, but the run_python scratchpad PERSISTS across turns -- the id
+    lists and columns one turn stores stay usable -- and each turn's
+    translate/compile sees a context block with the recent turns and the
+    stored variables, so follow-ups resolve ('plot those vs h21', 'restrict
+    to the favorable ones'). Sessions are still archived per turn, so the
+    viewer shows each turn separately.
+
+        chat = OrchestratorChat(model="qwen3:8b")
+        chat.chat("Fetch the first 20 polytopes at h11=3 and their NTFE counts")
+        chat.chat("Now scatter those counts against h21")
+    """
+
+    def __init__(self, model="qwen3:8b", **session_kw):
+        self.model = model
+        self.session_kw = session_kw
+        self.turns = []      # (question, answer)
+
+    def _context(self):
+        if not self.turns:
+            return ""
+        lines = ["[Conversation so far -- resolve references like 'those'/"
+                 "'them' against it:]"]
+        for q, a in self.turns[-3:]:
+            lines.append(f"USER ASKED: {q}")
+            lines.append(f"ANSWER WAS: {a[:300]}")
+        lines.append("[variables stored from these turns: "
+                     + _code.namespace_summary() + "]")
+        id_lists = [n for n, v in _code._NS.items()
+                    if n not in _code._PRELOADED
+                    and isinstance(v, (list, tuple)) and v
+                    and all(isinstance(i, str) and i.startswith("h11-")
+                            for i in v)]
+        if id_lists:
+            lines.append("[stored polytope-id lists (reusable via "
+                         "use_stored): " + ", ".join(id_lists) + "]")
+        return "\n".join(lines)
+
+    def chat(self, question):
+        """One conversational turn; returns the PM's answer."""
+        answer = run_session(question, model=self.model,
+                             reset=not self.turns, context=self._context(),
+                             **self.session_kw)
+        self.turns.append((question, answer))
+        return answer
+
+    def reset(self):
+        """Forget the conversation AND the stored variables."""
+        self.turns = []
+        _code.reset_namespace()
+
+
 def _answer_key(msg, question=""):
     """The comparable RESULT of an answer: its last number after stripping
     digits that are not results -- file paths (fig_1.png, /home/...), domain
@@ -365,12 +428,17 @@ def run_session_voted(user_message, votes=3, agree=2, **kw):
 # the session loop -- the conductor
 # ---------------------------------
 def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
-                pm_think=False, plan_think=True, eng_think=False):
+                pm_think=False, plan_think=True, eng_think=False,
+                reset=True, context=""):
     """Run one PM+engineer session and return the PM's reply. The PM plans,
     then WORKS DOWN THE LIST: each plan step is dispatched to the engineer in
     order (no free re-choosing, which previously dribbled/looped). A step that
     does not finish is retried once, then the walk stops. Evidence and progress
-    stream to scratch/ live, and the whole session is archived at the end."""
+    stream to scratch/ live, and the whole session is archived at the end.
+
+    reset=False keeps the scratchpad from a previous session in this process
+    (chat turns build on stored lists); context carries prior-turn text for
+    reference resolution. Both are managed by OrchestratorChat."""
     def log(tag, body):
         if verbose:
             print(f"\n{tag}\n{body}", flush=True)
@@ -379,14 +447,16 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     reset_evidence()
     reset_session()
     _code.reset_figures()      # so this run archives only the figures it makes
-    _code.reset_namespace()    # clear the scratchpad so vars (e.g. polytope_ids)
-                               # don't leak in from a prior session in this proc
+    if reset:
+        _code.reset_namespace()  # clear the scratchpad so vars (polytope_ids)
+                                 # don't leak in from a prior session; chat
+                                 # turns pass reset=False to BUILD on them
     emit("question", text=user_message)
     pm = ProjectManager(model, think=pm_think, plan_think=plan_think)
     evidence = []   # cumulative across rounds; streamed to the file live
 
     emit("active", who="PM", phase="translating the request")
-    direct = pm.translate(user_message)
+    direct = pm.translate(user_message, context=context)
     log("[PM direct speech]", direct)
     emit("direct_speech", text=direct)
 
@@ -396,10 +466,17 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     # the normal plan-and-walk below.
     if PIPELINE:
         emit("active", who="PM", phase="compiling the pipeline")
-        ans = try_pipeline(pm, direct, evidence, TOOL_CHEATSHEET, log)
+        ans = try_pipeline(pm, direct, evidence, TOOL_CHEATSHEET, log,
+                           context=context, raw=user_message)
         if ans is not None:
             write_evidence(evidence)
             complete, missing = pm.verify_answer(user_message, ans)
+            # the LLM verifier often misses that "[saved N figure(s)]" IS the
+            # plot deliverable (the marker is harness-written, unfakable) --
+            # don't annotate a plot complaint onto an answer that has it
+            if (not complete and missing and "[saved " in ans
+                    and any(w in missing.lower() for w in _PLOT_WORDS)):
+                complete, missing = True, ""
             if not complete and missing:
                 ans += f"\n\n(verification -- possibly incomplete: {missing})"
             log("[PM -> user (pipeline)]", ans)

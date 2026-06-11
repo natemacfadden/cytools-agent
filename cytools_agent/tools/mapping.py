@@ -183,8 +183,22 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
 
     cols = {name: [] for name in exprs}
     ok_ids, errors = [], []
+    # stored ALIGNED columns (numeric lists parallel to a stored ok_ids) are
+    # also offered as id-keyed dicts, so an expression can reference a prior
+    # turn's per-polytope value as e.g. ntfe_count[ks_ind] -- the natural
+    # thing to write (observed), impossible with a bare list
+    prev_ids = _code._NS.get("ok_ids")
+    by_id = {}
+    if isinstance(prev_ids, (list, tuple)) and prev_ids:
+        for name, val in _code._NS.items():
+            if (name not in _code._PRELOADED and name != "ok_ids"
+                    and isinstance(val, (list, tuple))
+                    and len(val) == len(prev_ids)
+                    and all(isinstance(e, (int, float)) for e in val)):
+                by_id[name] = dict(zip(prev_ids, val))
     for ks in ids:
         scope = dict(_code._NS)
+        scope.update(by_id)                   # id-keyed view shadows the list
         scope.update(ks_ind=ks, ks=ks)        # forgive the `ks` shorthand
         try:
             row = {name: eval(c, scope) for name, c in compiled.items()}
@@ -192,7 +206,9 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
             if len(errors) < _MAX_ERRORS:
                 errors.append(f"{ks}: {type(e).__name__}: {e}")
             continue
-        ok_ids.append(str(ks))
+        # keep the id object as-is: fetch ids are _PolytopeId (a str subclass
+        # whose ['id']/.ks_ind access is forgiven); str(ks) stripped that
+        ok_ids.append(ks if isinstance(ks, str) else str(ks))
         for name, val in row.items():
             cols[name].append(val)
 
@@ -237,13 +253,16 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
 # model-read
 @forgive_kwargs
 def make_plot(kind: str, x: str | list, y: str | list | None = None,
+              color: str | list | None = None,
               xlabel: str = "", ylabel: str = "",
-              title: str = "", bins: int | None = None) -> str:
+              title: str = "", bins: int | None = None,
+              logx: bool = False, logy: bool = False) -> str:
     """
     Build and save a figure from data already in the scratchpad. Pass the NAME
     of a stored list (e.g. one made by compute_for_each) -- or a literal list
     -- for each axis; the figure is saved to disk automatically and its path
-    returned. Use this instead of writing matplotlib code.
+    returned. Use this instead of writing matplotlib code. Call it several
+    times for several figures.
 
     Parameters
     ----------
@@ -253,18 +272,25 @@ def make_plot(kind: str, x: str | list, y: str | list | None = None,
         Scratchpad variable name (e.g. "tadpole") or a literal list of values.
     y : str or list, optional
         Second axis, as for x. Required for scatter/line/bar.
+    color : str or list, optional
+        A THIRD aligned column to color scatter points by (adds a colorbar)
+        -- e.g. color='h11' on an x-y scatter shows how the relationship
+        varies with h11. For a histogram, a CATEGORY column: one overlaid
+        (legended) histogram per distinct value.
     xlabel, ylabel, title : str, optional
         Axis labels and title.
     bins : int, optional
         Histogram bin count.
+    logx, logy : bool, optional
+        Log-scale the axis (use when values span decades, e.g. volumes).
 
     Returns
     -------
     str
         Confirmation with the saved figure path, plus computed facts about
-        the plotted data (ranges, constant axes, correlation, outliers) --
-        USE these to describe the relationship in your answer instead of
-        guessing from the figure.
+        the plotted data (ranges, constant axes, correlation, outliers,
+        per-group counts) -- USE these to describe the relationship in your
+        answer instead of guessing from the figure.
     """
     plt = _code.plt
     if plt is None:
@@ -289,24 +315,48 @@ def make_plot(kind: str, x: str | list, y: str | list | None = None,
 
     xv = resolve(x, "x")
     yv = resolve(y, "y") if y is not None else None
+    cv = resolve(color, "color") if color is not None else None
     if k != "histogram" and yv is None:
         raise ValueError(f"a {k} plot needs both x and y.")
-    if yv is not None and len(xv) != len(yv):
-        raise ValueError(f"x and y have different lengths ({len(xv)} vs "
-                         f"{len(yv)}) -- use lists stored by the SAME "
-                         f"compute_for_each call so they stay aligned.")
+    for name, vals in (("y", yv), ("color", cv)):
+        if vals is not None and len(xv) != len(vals):
+            raise ValueError(
+                f"x and {name} have different lengths ({len(xv)} vs "
+                f"{len(vals)}) -- use lists stored by the SAME "
+                f"compute_for_each call so they stay aligned.")
 
+    clabel = color if isinstance(color, str) else "color"
     fig, ax = plt.subplots()
     if k == "scatter":
-        ax.scatter(xv, yv)
+        if cv is not None:
+            sc = ax.scatter(xv, yv, c=cv, cmap="viridis")
+            fig.colorbar(sc, ax=ax, label=clabel)
+        else:
+            ax.scatter(xv, yv)
     elif k == "histogram":
-        ax.hist(xv, bins=bins or "auto")
+        if cv is not None:           # category column -> overlaid histograms
+            groups = sorted(set(cv), key=str)
+            if len(groups) > 8:
+                raise ValueError(
+                    f"color={clabel!r} has {len(groups)} distinct values -- "
+                    f"too many for overlaid histograms (max 8). Use a "
+                    f"coarser category or drop color.")
+            for g in groups:
+                ax.hist([v for v, c in zip(xv, cv) if c == g],
+                        bins=bins or "auto", alpha=0.6, label=str(g))
+            ax.legend(title=clabel)
+        else:
+            ax.hist(xv, bins=bins or "auto")
         ax.set_ylabel(ylabel or "count")
     elif k == "line":
         ax.plot(xv, yv)
     elif k == "bar":
         ax.bar(range(len(yv)), yv)
         ax.set_xticks(range(len(xv)), [str(v) for v in xv])
+    if logx:
+        ax.set_xscale("log")
+    if logy and k != "histogram":
+        ax.set_yscale("log")
     if xlabel:
         ax.set_xlabel(xlabel)
     if ylabel and k != "histogram":
@@ -315,6 +365,11 @@ def make_plot(kind: str, x: str | list, y: str | list | None = None,
         ax.set_title(title)
     note = _code._save_open_figures()
     analysis = _analyze_plot(xv, yv, k)
+    if cv is not None:
+        groups = {}
+        for c in cv:
+            groups[c] = groups.get(c, 0) + 1
+        analysis["color_groups"] = dict(sorted(groups.items(), key=str)[:8])
     return (f"figure built.{note}\n[data facts -- use these to DESCRIBE the "
             f"relationship in your answer: {analysis}]")
 

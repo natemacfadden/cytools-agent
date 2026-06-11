@@ -27,10 +27,12 @@ from cytools_agent.orchestrator.evidence import (EVIDENCE_PATH, LOG_DIR,
                                                  SESSION_PATH, export_script,
                                                  read_evidence, read_session,
                                                  render_evidence)
-from cytools_agent.orchestrator.project_manager import (ProjectManager,
+from cytools_agent.orchestrator.project_manager import (OrchestratorChat,
+                                                        ProjectManager,
                                                         run_session,
                                                         run_session_voted)
 
-__all__ = ["run_session", "run_session_voted", "ProjectManager",
-           "EVIDENCE_PATH", "SESSION_PATH", "LOG_DIR", "export_script",
-           "read_evidence", "read_session", "render_evidence"]
+__all__ = ["run_session", "run_session_voted", "OrchestratorChat",
+           "ProjectManager", "EVIDENCE_PATH", "SESSION_PATH", "LOG_DIR",
+           "export_script", "read_evidence", "read_session",
+           "render_evidence"]
