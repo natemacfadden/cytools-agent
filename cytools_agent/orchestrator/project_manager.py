@@ -452,6 +452,10 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
                                  # don't leak in from a prior session; chat
                                  # turns pass reset=False to BUILD on them
     emit("question", text=user_message)
+    # record this process's sampled prompt examples, so any session's exact
+    # prompts are reconstructible (CYTOOLS_EXAMPLE_SEED reproduces a draw)
+    from cytools_agent.tools._examples import EXAMPLE_CHOICES
+    emit("examples", choices={k: v[0] for k, v in EXAMPLE_CHOICES.items()})
     pm = ProjectManager(model, think=pm_think, plan_think=plan_think)
     evidence = []   # cumulative across rounds; streamed to the file live
 

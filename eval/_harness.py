@@ -29,6 +29,10 @@ import signal
 
 from openai import OpenAI
 
+# pin the sampled prompt examples for eval stability (see eval_orch.py);
+# must happen before cytools_agent imports read the env
+os.environ.setdefault("CYTOOLS_EXAMPLE_SEED", "0")
+
 # local imports
 from cytools_agent.tools import MODEL_TOOLS
 from cytools_agent.tools.glossary import glossary_context

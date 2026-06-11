@@ -176,10 +176,11 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
         try:
             compiled[name] = compile(expr, f"<compute_for_each:{name}>", "eval")
         except SyntaxError as e:
+            from cytools_agent.tools._examples import example as _ex
             raise ValueError(
                 f"expression {name!r} is not a valid Python expression "
                 f"({e}). Write ONE expression per name, e.g. "
-                f"\"max(get_polytope_info(ks_ind)['genera_2face'])\".") from None
+                f"\"{_ex('expr_error')[1]}\".") from None
 
     cols = {name: [] for name in exprs}
     ok_ids, errors = [], []
@@ -374,6 +375,155 @@ def make_plot(kind: str, x: str | list, y: str | list | None = None,
             f"relationship in your answer: {analysis}]")
 
 
+# model-read
+@forgive_kwargs
+def search_polytopes(condition: str, objective: str = "largest_h11",
+                     helpers: dict | None = None,
+                     h11_max: int | None = None, h11_min: int = 1,
+                     per_level: int = 300, deep_per_level: int = 5000,
+                     grid_step: int = 10, patience: int = 3,
+                     max_queries: int = 20) -> dict:
+    """
+    Budget-aware SEARCH over h11 levels for polytopes satisfying a condition.
+    Use this for questions like "the largest h11 such that some polytope
+    satisfies X" -- do NOT write your own loop over h11 levels (the database
+    is shared; this tool probes politely and stops early).
+
+    Strategy: coarse probe along an h11 grid (checking a PREFIX of each
+    level), then on the first hit a level-by-level refinement toward the
+    objective until `patience` consecutive levels show nothing. Coverage is
+    deliberately LOSSY (prefixes, not exhaustive levels) -- the result
+    reports exactly what was checked, so treat absences at prefix-checked
+    levels as evidence, not proof.
+
+    Parameters
+    ----------
+    condition : str
+        A Python expression evaluated once per polytope with `ks_ind` bound
+        (tools callable inside, like compute_for_each), truthy when the
+        polytope qualifies. May reference helper names (see `helpers`).
+    objective : str, optional
+        "largest_h11" (default), "smallest_h11", or "any" (first hit).
+    helpers : dict, optional
+        {name: expression} computed per polytope BEFORE the condition, each
+        name then bound inside it -- e.g.
+        helpers={"n_rigid": "get_polytope_info(ks_ind)['n_rigid_divisors']"},
+        condition="n_rigid == 0".
+    h11_max, h11_min : int, optional
+        Search range (defaults: the database's full h11 range).
+    per_level : int, optional
+        Prefix size for coarse probing (default 300).
+    deep_per_level : int, optional
+        Prefix size during refinement (default 5000).
+    grid_step : int, optional
+        Coarse-probe spacing in h11 (default 10).
+    patience : int, optional
+        Stop refining after this many consecutive empty levels (default 3).
+    max_queries : int, optional
+        Soft cap on real database queries this call may spend (default 20).
+
+    Returns
+    -------
+    dict
+        found, best_h11, witness (a qualifying id), n_hits_at_best, coverage
+        (per level: checked / total / hits / exhaustive flag), queries_used,
+        and `note` spelling out the lossiness. Report the note's caveats.
+    """
+    from cytools_agent.tools import polytope as P
+    try:
+        cond = compile(condition, "<search_polytopes:condition>", "eval")
+    except SyntaxError as e:
+        raise ValueError(
+            f"condition is not a valid Python expression ({e}). Write ONE "
+            f"boolean expression over ks_ind.") from None
+    helper_code = {}
+    for name, expr in (helpers or {}).items():
+        try:
+            helper_code[name] = compile(str(expr),
+                                        f"<search_polytopes:{name}>", "eval")
+        except SyntaxError as e:
+            raise ValueError(f"helper {name!r} is not a valid expression "
+                             f"({e}).") from None
+    if objective not in ("largest_h11", "smallest_h11", "any"):
+        raise ValueError("objective must be largest_h11/smallest_h11/any, "
+                         f"got {objective!r}")
+
+    q0 = P.ks_query_count()
+    all_h11 = sorted(h for h, n in P._KS_H11.items() if n > 0)
+    lo = max(h11_min, all_h11[0])
+    hi = min(h11_max or all_h11[-1], all_h11[-1])
+    descending = objective in ("largest_h11", "any")
+
+    coverage = {}
+
+    def spent():
+        return P.ks_query_count() - q0
+
+    def check(h, cap):
+        total = P._KS_H11.get(h, 0)
+        if total == 0:
+            return None
+        ids = P.fetch_polytopes(min(total, cap), h)
+        hits = []
+        for ks in ids:
+            scope = dict(_code._NS)
+            scope.update(ks_ind=ks, ks=ks)
+            try:
+                for name, hc in helper_code.items():
+                    scope[name] = eval(hc, scope)
+                if eval(cond, scope):
+                    hits.append(str(ks))
+            except Exception as e:
+                raise ValueError(
+                    f"condition raised on {ks}: {type(e).__name__}: {e}. "
+                    f"Fix the expression.") from None
+        coverage[h] = {"checked": len(ids), "total": total,
+                       "hits": len(hits),
+                       "exhaustive": len(ids) >= total}
+        return hits[0] if hits else None
+
+    # phase 1: coarse probe
+    grid = (range(hi, lo - 1, -grid_step) if descending
+            else range(lo, hi + 1, grid_step))
+    best, witness = None, None
+    for h in grid:
+        if spent() >= max_queries:
+            break
+        w = check(h, per_level)
+        if w:
+            best, witness = h, w
+            break
+
+    # phase 2: refine toward the objective (skip for "any")
+    if best is not None and objective != "any":
+        step = 1 if objective == "largest_h11" else -1
+        h, empty = best + step, 0
+        while empty < patience and lo <= h <= hi and spent() < max_queries:
+            w = check(h, deep_per_level)
+            if w:
+                best, witness, empty = h, w, 0
+            else:
+                empty += 1
+            h += step
+
+    prefix_lvls = sorted(h for h, c in coverage.items()
+                         if not c["exhaustive"] and c["hits"] == 0)
+    note = ("Coverage is partial: each level was checked as a PREFIX in "
+            "database order (lowest h21 first) unless marked exhaustive. "
+            "Absence at prefix-checked levels "
+            f"({prefix_lvls if prefix_lvls else 'none'}) is evidence, not "
+            "proof. State the answer as 'confirmed' with these caveats.")
+    return {
+        "found": best is not None,
+        "best_h11": best,
+        "witness": witness,
+        "n_hits_at_best": coverage.get(best, {}).get("hits"),
+        "coverage": {h: coverage[h] for h in sorted(coverage)},
+        "queries_used": spent(),
+        "note": note,
+    }
+
+
 # DEFAULT ON since the 2026-06-10 A/B (orchestrator 0/12 -> 4-6/12; the only
 # passing configuration). CYTOOLS_MAP_TOOLS=0 restores the baseline arm.
 MAP_TOOLS_ENABLED = env_flag("CYTOOLS_MAP_TOOLS", default=True)
@@ -381,7 +531,7 @@ MAP_TOOLS_ENABLED = env_flag("CYTOOLS_MAP_TOOLS", default=True)
 # A/B gate: only when enabled do the tools enter the run_python namespace and
 # the advertised tool list -- the baseline arm stays byte-identical.
 if MAP_TOOLS_ENABLED:
-    for _fn in (compute_for_each, make_plot):
+    for _fn in (compute_for_each, make_plot, search_polytopes):
         _code._NS[_fn.__name__] = _fn
         _code._PRELOADED.append(_fn.__name__)     # survive reset_namespace
         _code._TOOL_NAMES.append(_fn.__name__)    # named in error hints

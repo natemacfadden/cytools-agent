@@ -24,6 +24,7 @@
 # external imports
 import json
 import os
+import time
 
 import cytools
 
@@ -131,9 +132,33 @@ def _load_disk_cache():
 
 # human-read
 def _save_disk_cache():
+    """Persist the cache, MERGING with what is on disk first -- several
+    processes (an agent session + a research script) share this file, and a
+    blind rewrite would discard whichever fetches the other process made
+    since our load. Keep whichever side knows a LONGER prefix per query."""
     if not _DISK:
         return
     try:
+        if os.path.exists(_DISK):
+            try:
+                with open(_DISK) as f:
+                    d = json.load(f)
+                _CACHE.update({k: v for k, v in d.get("cache", {}).items()
+                               if k not in _CACHE})
+                for k, v in d.get("fetched", {}).items():
+                    try:
+                        h11s, h21s = k.split(",")
+                        key = (int(h11s), int(h21s) if h21s else None)
+                    except (ValueError, TypeError):
+                        continue
+                    ours = _FETCHED.get(key)
+                    if "ids" in v and (not ours or
+                                       len(v["ids"]) > len(ours.get("ids", []))
+                                       or (v.get("complete")
+                                           and not ours.get("complete"))):
+                        _FETCHED[key] = v
+            except (OSError, ValueError):
+                pass
         os.makedirs(os.path.dirname(_DISK), exist_ok=True)
         fetched = {f"{h11},{'' if h21 is None else h21}": v
                    for (h11, h21), v in _FETCHED.items()}
@@ -219,12 +244,54 @@ def _filter_favorable(ks_inds: list[str], favorable: bool | None) -> list[str]:
     return [i for i in ks_inds
             if get_polytope(i).is_favorable(lattice="N") == favorable]
 
+# Politeness guardrail for the shared Kreuzer-Skarke database. Cache-served
+# queries are free; queries that REALLY hit the database are (a) spaced by a
+# minimum delay, (b) capped in size, and (c) capped in number per process --
+# so neither an agent loop nor a careless human script (observed: a 250-query
+# descending h11 sweep) can hammer the upstream source. All env-tunable.
+_KS_MIN_INTERVAL = float(os.environ.get("CYTOOLS_KS_MIN_INTERVAL", "1.5"))
+_KS_BUDGET = int(os.environ.get("CYTOOLS_KS_BUDGET", "40"))
+_KS_MAX_LIMIT = int(os.environ.get("CYTOOLS_KS_MAX_LIMIT", "5000"))
+_ks_queries = 0      # real DB queries this process
+_ks_last = 0.0
+
+
+# human-read
+def ks_query_count() -> int:
+    """Real (non-cache) KS-database queries issued by this process."""
+    return _ks_queries
+
+
+# human-read
+def _ks_guard(h11, h21, limit):
+    """Enforce budget + size cap + spacing before a REAL database query."""
+    global _ks_queries, _ks_last
+    if limit > _KS_MAX_LIMIT:
+        raise ValueError(
+            f"refusing a single database query for {limit} polytopes (cap "
+            f"{_KS_MAX_LIMIT}). Check ks_stats(h11[, h21]) and narrow the "
+            f"request, or work on a sample.")
+    if _ks_queries >= _KS_BUDGET:
+        raise RuntimeError(
+            f"KS-database query budget exhausted ({_KS_BUDGET} real queries "
+            f"this session) -- the shared database must not be hammered. "
+            f"Plan with ks_stats (free), reuse already-fetched polytopes "
+            f"(cached queries are free), or batch several h11 into FEWER "
+            f"queries. If genuinely needed, raise CYTOOLS_KS_BUDGET.")
+    wait = _KS_MIN_INTERVAL - (time.monotonic() - _ks_last)
+    if wait > 0:
+        time.sleep(wait)
+    _ks_queries += 1
+    _ks_last = time.monotonic()
+
+
 # human-read
 def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
     """Ensure the first `limit` of this query are cached (fetch if not)."""
     if _cache_can_serve(h11, h21, limit):
         return
 
+    _ks_guard(h11, h21, limit)
     polys = cytools.fetch_polytopes(
         h11=h11, h21=h21, limit=limit, dim=4, lattice="N", as_list=True
     )
@@ -287,6 +354,11 @@ def fetch_polytopes(limit: int, h11: int, h21: int | None = None,
     large, so an arbitrary high limit can fetch thousands). For all FAVORABLE
     ones, pass favorable=True with limit set to that count -- you get fewer
     only if the database runs out.
+
+    The database is a SHARED academic resource: real (non-cached) queries are
+    rate-limited and budgeted per session. Re-fetching already-fetched
+    polytopes is free (cached); prefer FEW, well-planned queries over a query
+    per loop iteration.
 
     Parameters
     ----------

@@ -36,6 +36,10 @@ import os
 import sys
 import time
 
+# pin the sampled prompt examples for eval stability (see eval_orch.py);
+# must happen before cytools_agent imports read the env
+os.environ.setdefault("CYTOOLS_EXAMPLE_SEED", "0")
+
 # local imports
 from cytools_agent.tools import code as _code
 from eval._harness import run

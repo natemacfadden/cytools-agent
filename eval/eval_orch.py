@@ -38,6 +38,13 @@ import signal
 import sys
 import time
 
+# evals must be example-stable: the model-facing prompts sample their worked
+# example per process (tools/_examples.py), and an arm-to-arm comparison must
+# not confound a config change with a lucky example draw. Pin the seed BEFORE
+# the cytools_agent imports read it (setdefault: deliberate overrides still
+# work, e.g. CYTOOLS_EXAMPLE_SEED=3 to study example sensitivity).
+os.environ.setdefault("CYTOOLS_EXAMPLE_SEED", "0")
+
 # local imports
 from cytools_agent.orchestrator import (run_session, run_session_voted,
                                         read_evidence, read_session)

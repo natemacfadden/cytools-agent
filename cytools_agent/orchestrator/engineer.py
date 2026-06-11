@@ -106,17 +106,27 @@ LEAN_CHEATSHEET = (
 
 # A/B (CYTOOLS_MAP_TOOLS): harness-side iteration + plotting. The cheatsheet
 # must advertise them or the engineer cannot know they exist. (Defined AFTER
-# both cheatsheets -- this block appends to them.)
+# both cheatsheets -- this block appends to them.) The worked example's field
+# is SAMPLED per process (see tools/_examples.py) so no single field becomes
+# an attractor the model drifts into on novel questions.
+from cytools_agent.tools._examples import example as _example
+_EX_NAME, _EX_EXPR, _ = _example("map_cheat")
 _MAP_CHEAT = (
     "\n  compute_for_each(ks_inds, {name: expression, ...}) -> evaluates each "
     "expression once PER id (with ks_ind bound) and stores aligned lists named "
     "`name` in the scratchpad; also returns stats (n/mean/min/max/sum) per "
     "numeric list -- report those numbers directly. USE THIS instead of "
-    "writing your own loop over polytopes. Example: compute_for_each(ids, "
-    "{'genus_max': \"max(get_polytope_info(ks_ind)['genera_2face'])\"})\n"
+    "writing your own loop over polytopes. Example (replace the field with "
+    "what YOUR task needs): compute_for_each(ids, "
+    f"{{'{_EX_NAME}': \"{_EX_EXPR}\"}})\n"
     "  make_plot(kind, x, y=None, xlabel='', ylabel='', title='') -> builds and "
     "saves the figure from stored list NAMES (e.g. make_plot(kind='scatter', "
-    "x='tadpole', y='genus_max')). USE THIS instead of writing matplotlib code."
+    "x='h21', y='n_vertices')). USE THIS instead of writing matplotlib code.\n"
+    "  search_polytopes(condition, objective='largest_h11') -> budget-aware "
+    "search over h11 levels for a polytope satisfying `condition` (a boolean "
+    "expression over ks_ind). USE THIS for 'largest/smallest h11 such that "
+    "...' questions -- never write your own loop over h11 levels (the "
+    "database is shared)."
 )
 from cytools_agent.tools.mapping import MAP_TOOLS_ENABLED
 if MAP_TOOLS_ENABLED:

@@ -127,6 +127,15 @@ _GLOSSARY = {
         "(a vector, one entry per basis divisor).",
         "get_cy_info(ks_ind, h)['second_chern_class']",
         ["c2", "chern class", "second chern"]),
+    "2-face lattice points": (
+        "The number of lattice points ON a 2-face (boundary + interior of "
+        "that face), one count per 2-face. NOT the 2-face genus "
+        "(genera_2face counts interior points of the DUAL 1-face).",
+        "[len(f.points()) for f in get_polytope(ks_ind).faces(2)]   "
+        "# one count per 2-face; reduce with max()/min()/all(...)",
+        ["lattice points of a 2-face", "points of a 2-face", "2-face points",
+         "points on each 2-face", "lattice points on the 2-faces",
+         "2-face point count"]),
     "lattice points": (
         "The lattice points of the polytope; n_points is how many (the count "
         "includes the origin). Vertices are a subset (n_vertices).",
@@ -238,7 +247,13 @@ _GLOSSARY = {
 
 
 def _norm(s):
-    return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+    """Lowercase, strip punctuation, and DEPLURALIZE tokens (faces -> face)
+    so 'all of p's 2-faces have ... lattice points' matches the singular
+    phrases entries are written in. Trailing-s only; 'ss' kept (class)."""
+    s = re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+    return " ".join(t[:-1] if len(t) > 3 and t.endswith("s")
+                    and not t.endswith("ss") else t
+                    for t in s.split())
 
 
 # every (normalized phrase -> canonical key), over canonical terms + synonyms
@@ -323,25 +338,40 @@ ALL_MARKERS = set().union(
 
 
 # human-read
-def expected_by_term(message: str) -> dict:
-    """{glossary term -> its recipe markers} for each term the message names
-    (same matching as glossary_context). Per-term so a caller can check that
-    EVERY named quantity is computed, not just one of them."""
+def _matched_keys(message: str) -> set:
+    """Glossary keys the message names: contiguous phrase matches, plus a
+    CO-OCCURRENCE fallback for phrases of >=3 distinctive words whose words
+    all appear somewhere in the message -- natural phrasing splits a
+    quantity across the sentence ('2-faces have <=20 lattice points' never
+    contains '2-face lattice points' contiguously)."""
     mtoks = _norm(message).split()
+    mset = set(mtoks)
 
     def _has(seq):
         n = len(seq)
         return n > 0 and any(mtoks[i:i + n] == seq
                              for i in range(len(mtoks) - n + 1))
 
-    out = {}
+    keys = set()
     for nphrase, key in _PHRASES:
-        if key in _SCAN_SKIP or key in out:
+        if key in _SCAN_SKIP or key in keys:
             continue
-        if _has(nphrase.split()):
-            m = _recipe_markers(_GLOSSARY[key][1])
-            if m:
-                out[key] = m
+        pt = nphrase.split()
+        if _has(pt) or (len(pt) >= 3 and set(pt) <= mset):
+            keys.add(key)
+    return keys
+
+
+# human-read
+def expected_by_term(message: str) -> dict:
+    """{glossary term -> its recipe markers} for each term the message names
+    (same matching as glossary_context). Per-term so a caller can check that
+    EVERY named quantity is computed, not just one of them."""
+    out = {}
+    for key in _matched_keys(message):
+        m = _recipe_markers(_GLOSSARY[key][1])
+        if m:
+            out[key] = m
     return out
 
 
@@ -365,21 +395,8 @@ def glossary_context(message: str, max_terms: int = 4,
 
     recipe_only=True returns just the recipes (no paragraph definitions) -- a
     lean view for the ENGINEER, which needs the code pattern, not the prose."""
-    mtoks = _norm(message).split()
-
-    def _has(seq):
-        n = len(seq)
-        return n > 0 and any(mtoks[i:i + n] == seq
-                             for i in range(len(mtoks) - n + 1))
-
-    matched = {}
-    for nphrase, key in _PHRASES:
-        if key in _SCAN_SKIP:
-            continue
-        pt = nphrase.split()
-        if _has(pt) and len(pt) > matched.get(key, 0):
-            matched[key] = len(pt)            # keep the longest phrase per key
-    keys = sorted(matched, key=lambda k: -matched[k])[:max_terms]
+    keys = sorted(_matched_keys(message),
+                  key=lambda k: -len(k))[:max_terms]
     if not keys:
         return ""
     if recipe_only:

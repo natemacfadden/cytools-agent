@@ -49,6 +49,11 @@ from cytools_agent.orchestrator.evidence import emit
 # CYTOOLS_PIPELINE=0 disables.
 PIPELINE = env_flag("CYTOOLS_PIPELINE", default=True)
 
+# the SHAPE B worked example's field is sampled per process (attractor
+# flattening; see tools/_examples.py)
+from cytools_agent.tools._examples import example as _ex
+_EXAMPLE = _ex("search_compile")
+
 _OPS = ("mean", "min", "max", "sum", "count", "argmax", "argmin",
         "ids_where_positive")
 
@@ -75,6 +80,16 @@ PIPELINE_FORMAT = {
                                  "op": {"enum": list(_OPS)},
                                  "of": {"type": "string"}},
                              "required": ["name", "op", "of"]}},
+        "search": {"type": ["object", "null"],
+                   "properties": {
+                       "map": {"type": ["object", "null"], "maxProperties": 3,
+                               "additionalProperties": {"type": "string"}},
+                       "condition": {"type": "string"},
+                       "objective": {"enum": ["largest_h11", "smallest_h11",
+                                              "any"]},
+                       "h11_max": {"type": ["integer", "null"]},
+                       "h11_min": {"type": ["integer", "null"]}},
+                   "required": ["condition", "objective"]},
         "plot": {"type": ["array", "null"], "maxItems": 4,
                  "items": {"type": "object",
                            "properties": {
@@ -87,13 +102,24 @@ PIPELINE_FORMAT = {
                                "logy": {"type": "boolean"}},
                            "required": ["kind", "x"]}},
     },
-    "required": ["fits", "fetch", "map", "reduce", "plot"],
+    "required": ["fits", "fetch", "map", "reduce", "plot", "search"],
 }
 
 _COMPILE_INSTRUCTIONS = (
-    "Decide whether this request fits the pipeline 'fetch polytopes -> "
-    "compute expression(s) once per polytope -> reduce -> optional plot'. "
-    "If not, reply fits=false (everything else may be minimal). If it fits: "
+    "Decide whether this request fits one of two shapes. SHAPE A (map): "
+    "'fetch polytopes -> compute expression(s) once per polytope -> reduce "
+    "-> optional plot'. SHAPE B (search): 'the LARGEST/SMALLEST h11 (or: "
+    "does ANY polytope exist) such that some polytope satisfies a "
+    "condition' -- then fill `search` INSTEAD: search.map = named per-"
+    "polytope expressions over ks_ind built from the glossary recipe for "
+    "the asked quantity, condition = a boolean expression over those NAMES "
+    "(e.g. search.map = "
+    + "{\"%s\": \"%s\"}, condition = \"%s\"" % _EXAMPLE
+    + " -- BOTH parts are required, and yours must come from the quantity "
+    "YOUR request names, via its glossary recipe), "
+    "objective = largest_h11/smallest_h11/"
+    "any; leave fetch/map/reduce/plot minimal (they are ignored). If "
+    "neither shape fits, reply fits=false. For SHAPE A: "
     "fetch = the Hodge-number filters and how many polytopes -- `limit` is "
     "PER h11, and for 'at each h11 in a range/list' pass h11 as the LIST of "
     "every value (e.g. [2,3,4,5,6,7,8,9,10]; never just the first); map = 1-3 "
@@ -139,6 +165,34 @@ def _valid(spec):
     """Validate beyond what the schema can express; return a reason or ''."""
     if not spec.get("fits"):
         return "model judged the request does not fit the pipeline"
+    if spec.get("search"):
+        s = spec["search"]
+        for name, expr in (s.get("map") or {}).items():
+            try:
+                ast.parse(str(expr), mode="eval")
+            except SyntaxError as e:
+                return f"search helper {name!r} is not a valid expression ({e})"
+        try:
+            tree = ast.parse(s.get("condition", ""), mode="eval")
+        except SyntaxError as e:
+            return f"search condition is not a valid expression ({e})"
+        # names the condition uses must EXIST: defined helpers, preloaded
+        # tools, or builtins. Catching a dangling shorthand here (observed:
+        # condition 'max_2face_points <= 20' with map=None) gives the
+        # recompile a fillable instruction instead of a runtime NameError.
+        import builtins
+        from cytools_agent.tools import code as _code
+        known = (set(s.get("map") or {}) | set(_code._NS) | {"ks_ind", "ks"}
+                 | set(dir(builtins)))
+        loose = sorted({n.id for n in ast.walk(tree)
+                        if isinstance(n, ast.Name) and n.id not in known})
+        if loose:
+            return ("search condition references undefined name(s) "
+                    + ", ".join(loose) + " -- DEFINE each in search.map as "
+                    "an expression over ks_ind (use the glossary recipe), "
+                    "e.g. search.map = {\"" + loose[0] + "\": \"<expression "
+                    "over ks_ind>\"}")
+        return ""        # search mode: fetch/map/reduce/plot are ignored
     cols = list(spec.get("map") or {}) + _stored_numeric_lists()
     for name, expr in (spec.get("map") or {}).items():
         try:
@@ -206,6 +260,8 @@ def _plot_issue(spec, direct):
     """'' or a recompile instruction: the request asks for a figure but the
     spec has no plot entries (observed: chat follow-ups kept compiling
     plot=null because the y column lived in a previous turn)."""
+    if spec.get("search"):
+        return ""        # search mode has no plot stage
     if _PLOT_WORDS_RE.search(direct) and not spec.get("plot"):
         return ("the request asks for a plot but the spec has plot=null -- "
                 "add a plot entry; its x/y/color may be THIS turn's map "
@@ -217,6 +273,8 @@ def _range_issue(spec, direct):
     """'' or a recompile instruction: the request sweeps h11 but the spec
     fetches only one value. (A use_stored spec inherits whatever spread the
     stored ids have, so it is exempt.)"""
+    if spec.get("search"):
+        return ""        # a search sweeps h11 by construction
     f = spec.get("fetch") or {}
     if f.get("use_stored"):
         return ""
@@ -268,6 +326,9 @@ def _spec_quantity_issues(spec, direct):
     compiled to cy_volume while automorphism_order was right, so a whole-spec
     check would have passed it). Returns a feedback string or ''."""
     exprs = " ".join((spec.get("map") or {}).values())
+    if spec.get("search"):
+        exprs += " " + spec["search"].get("condition", "")
+        exprs += " " + " ".join((spec["search"].get("map") or {}).values())
     toks = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", exprs))
     issues = []
     for term, markers in expected_by_term(direct).items():
@@ -275,10 +336,13 @@ def _spec_quantity_issues(spec, direct):
             continue
         foreign = toks & (ALL_MARKERS - markers)
         if foreign:
+            from cytools_agent.tools.glossary import cy_glossary
+            recipe = cy_glossary(term).get("recipe", "")
             issues.append(
                 f"the request's {term!r} is computed via "
                 f"{'/'.join(sorted(markers))}, but no expression uses it "
-                f"(found {'/'.join(sorted(foreign))} instead)")
+                f"(found {'/'.join(sorted(foreign))} instead). Use this "
+                f"recipe verbatim: {recipe}")
     return "; ".join(issues)
 
 
@@ -294,10 +358,44 @@ def compile_pipeline(pm, direct, cheatsheet, context=""):
                     label="PM.compile", schema=PIPELINE_FORMAT)
 
 
+def _run_search(spec, evidence):
+    """Execute a search-mode spec; compose the answer WITH its epistemics."""
+    from cytools_agent.tools.mapping import search_polytopes
+    s = spec["search"]
+    kw = {k: s[k] for k in ("objective", "h11_max", "h11_min")
+          if s.get(k) is not None}
+    if s.get("map"):
+        kw["helpers"] = s["map"]
+    r = search_polytopes(s["condition"], **kw)
+    _obs(evidence, "pipeline search",
+         f"search_polytopes({s['condition']!r}, helpers={s.get('map')!r}, "
+         f"objective={s.get('objective')!r})", r)
+    if not r["found"]:
+        checked = ", ".join(str(h) for h in r["coverage"])
+        return (f"No qualifying polytope found (levels probed: {checked}; "
+                f"{r['queries_used']} database queries). {r['note']}")
+    cov = r["coverage"]
+    exhausted = [h for h, c in cov.items() if c["exhaustive"]
+                 and c["hits"] == 0]
+    prefix_empty = [h for h, c in cov.items() if not c["exhaustive"]
+                    and c["hits"] == 0]
+    return (f"Confirmed: h11 = {r['best_h11']} admits a qualifying polytope "
+            f"-- witness {r['witness']} ({r['n_hits_at_best']} found at that "
+            f"level). Levels with no qualifying polytope found: "
+            f"exhaustively checked {exhausted or 'none'}; prefix-checked "
+            f"only (absence NOT proven) {prefix_empty or 'none'}. "
+            f"{r['queries_used']} database queries used. "
+            f"So {r['best_h11']} is a confirmed lower bound for the "
+            f"objective; levels above it were checked only partially unless "
+            f"listed as exhaustive.")
+
+
 def run_pipeline(spec, evidence):
     """Execute a VALIDATED spec; return the composed answer string.
     Raises on any stage failure (caller falls back to the free-form walk)."""
     from cytools_agent.tools import code as _code
+    if spec.get("search"):
+        return _run_search(spec, evidence)
     f = spec["fetch"]
     if f.get("use_stored"):             # chat continuity: prior turn's ids
         ids = list(_code._NS[f["use_stored"]])
@@ -399,6 +497,23 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
     try:
         return run_pipeline(spec, evidence)
     except Exception as e:
-        log("[pipeline: runtime fallback]", f"{type(e).__name__}: {e}")
-        emit("pipeline", fits=False, reason=f"runtime: {e}")
+        # a spec that VALIDATED but raised at runtime (e.g. a hallucinated
+        # field in a search condition) gets ONE recompile with the error --
+        # same fix-exactly-this pattern as validation failures
+        log("[pipeline: runtime error, recompiling once]",
+            f"{type(e).__name__}: {e}")
+        emit("pipeline", fits=False, reason=f"runtime: {e}", retrying=True)
+        try:
+            spec2 = compile_pipeline(
+                pm, direct + ("\n\n(Your previous attempt failed when RUN: "
+                              f"{e}. Fix exactly that -- use the glossary "
+                              "recipes verbatim.)"),
+                cheatsheet, context=context)
+            if not (_valid(spec2) or _range_issue(spec2, asked)
+                    or _plot_issue(spec2, asked)
+                    or _spec_quantity_issues(spec2, direct)):
+                emit("pipeline", fits=True, spec=spec2, retry=True)
+                return run_pipeline(spec2, evidence)
+        except Exception as e2:
+            emit("pipeline", fits=False, reason=f"retry runtime: {e2}")
         return None

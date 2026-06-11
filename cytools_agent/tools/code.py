@@ -31,6 +31,7 @@ import io
 import linecache
 import os
 import sys
+import time
 import traceback
 
 import numpy as np
@@ -87,6 +88,16 @@ _TOOL_NAMES = [n for n in _PRELOADED
                if n not in ("cytools", "np", "plt", "Polytope")]
 
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
+# Wall-clock cap for ONE run_python call (seconds; 0 disables). Observed: an
+# engineer step burned 14+ minutes of CPU recomputing get_polytope_info (all
+# fields, incl. automorphisms) for thousands of polytopes -- with no LLM in
+# the loop to notice. The cap turns runaway computation into a pointed,
+# recoverable error. Main-thread only (signals); other threads are uncapped.
+_RUN_TIMEOUT = float(os.environ.get("CYTOOLS_RUN_TIMEOUT", "150"))
+
+
+class _RunPythonTimeout(Exception):
+    pass
 _FIG_DIR = os.environ.get("CYTOOLS_AGENT_FIG_DIR", "scratch")   # sandboxable
 _fig_count = 0
 
@@ -213,7 +224,25 @@ def run_python(code: str) -> str:
         Captured stdout (a traceback is appended if the code raised), truncated
         to the last few KB if very long.
     """
+    import signal
+    import threading
+
+    timed = (_RUN_TIMEOUT > 0
+             and threading.current_thread() is threading.main_thread())
+
+    def _timeout(*_):
+        raise _RunPythonTimeout(
+            f"run_python call exceeded {_RUN_TIMEOUT:.0f}s of wall clock and "
+            f"was stopped. Compute LESS per call: only the field you need "
+            f"(e.g. len(f.points()) directly, NOT get_polytope_info's full "
+            f"record), on a SMALLER sample, saving partial results to the "
+            f"scratchpad between calls.")
+
     buf = io.StringIO()
+    if timed:
+        _t0 = time.monotonic()
+        prev = signal.signal(signal.SIGALRM, _timeout)
+        prev_t = signal.setitimer(signal.ITIMER_REAL, _RUN_TIMEOUT)
     try:
         tree = ast.parse(code, "<run_python>")
         last = tree.body[-1] if tree.body else None
@@ -267,6 +296,16 @@ def run_python(code: str) -> str:
                 out += (f"\n[name {missing!r} is not defined yet -- assign it "
                         f"before use; the scratchpad holds: "
                         f"{namespace_summary()}]")
+    finally:
+        if timed:
+            # disarm ours, restore the previous handler FIRST (so a pending
+            # outer deadline fires into ITS handler), then re-arm the outer
+            # timer with its remaining time minus what this call consumed
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, prev)
+            if prev_t[0]:
+                left = prev_t[0] - (time.monotonic() - _t0)
+                signal.setitimer(signal.ITIMER_REAL, max(0.1, left))
     out += _save_open_figures()  # persist any plots so they can be viewed
     if len(out) > _MAX_OUTPUT:
         out = "...(truncated)...\n" + out[-_MAX_OUTPUT:]
