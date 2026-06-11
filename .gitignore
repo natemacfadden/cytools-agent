@@ -3,6 +3,7 @@ __pycache__/
 *.egg-info/
 scratch/*
 !scratch/.gitkeep
+notebooks/scratch/
 .DS_Store
 .claude/
 *.png
