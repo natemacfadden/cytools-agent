@@ -56,6 +56,7 @@ _NS = {
     "plt": plt,
     "Polytope": cytools.Polytope,
     "get_polytope": polytope.get_polytope,
+    "content_id": polytope.content_id,
     "fetch_polytopes": polytope.fetch_polytopes,
     "get_polytope_info": polytope.get_polytope_info,
     "ks_stats": polytope.ks_stats,

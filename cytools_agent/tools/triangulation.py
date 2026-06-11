@@ -24,7 +24,8 @@
 import cytools
 
 # local imports
-from cytools_agent.tools.polytope import get_polytope, _InfoDict
+from cytools_agent.tools import costs
+from cytools_agent.tools.polytope import get_polytope, _InfoDict, _h11_of
 from cytools_agent.tools.cy import _as_heights
 from cytools_agent.tools._synonyms import forgive_kwargs
 
@@ -125,28 +126,40 @@ def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
     p = get_polytope(ks_ind)
 
     if n is not None:
-        tris = p.random_triangulations_fast(
-            N=n, max_retries=5, make_star=True, as_list=True,
-            progress_bar=False, seed=seed,
-        )
+        with costs.timed("get_heights_sample", h11=_h11_of(ks_ind),
+                         n_points=len(p.points())):
+            tris = p.random_triangulations_fast(
+                N=n, max_retries=5, make_star=True, as_list=True,
+                progress_bar=False, seed=seed,
+            )
         return _shaped([t.heights().tolist() for t in tris])
 
     difficulty, msg = _triangulation_difficulty(p)
     if kind == "FRST":
         difficulty = min(1.0, difficulty + 0.4)   # FRSTs blow up much faster
     if difficulty > effort:
+        est = costs.estimate(f"get_heights_{kind}", h11=_h11_of(ks_ind),
+                             strict=True)
+        measured = (f" Measured cost at this size: median "
+                    f"{est['median_s']}s, p90 {est['p90_s']}s "
+                    f"(n={est['n']})." if est else "")
         raise ValueError(
             f"enumerating ALL {kind} of {ks_ind} is difficulty {difficulty} "
-            f"but effort {effort} ('{msg}'). For a large polytope, sample "
-            f"triangulations instead: call get_heights({ks_ind!r}, n=<count>)."
+            f"but effort {effort} ('{msg}').{measured} For a large polytope, "
+            f"sample triangulations instead: call "
+            f"get_heights({ks_ind!r}, n=<count>)."
         )
 
-    if kind == "NTFE":
-        return _shaped([h.tolist() for h in p.ntfe_frsts(heights_only=True)])
-    if kind == "FRST":
-        return _shaped([t.heights().tolist() for t in p.all_triangulations(
-            only_fine=True, only_regular=True, only_star=True, as_list=True,
-            include_points_interior_to_facets=True)])
+    with costs.timed(f"get_heights_{kind}", h11=_h11_of(ks_ind),
+                     n_points=len(p.points())):
+        if kind == "NTFE":
+            return _shaped([h.tolist()
+                            for h in p.ntfe_frsts(heights_only=True)])
+        if kind == "FRST":
+            return _shaped([t.heights().tolist()
+                            for t in p.all_triangulations(
+                only_fine=True, only_regular=True, only_star=True,
+                as_list=True, include_points_interior_to_facets=True)])
     raise ValueError(f"kind must be 'NTFE' or 'FRST', got {kind!r}")
 
 # model-read

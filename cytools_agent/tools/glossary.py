@@ -145,11 +145,56 @@ _GLOSSARY = {
          "polytope", "lattice point"]),
     "hodge numbers": (
         "h^1,1 (number of Kahler moduli) and h^2,1 (number of "
-        "complex-structure moduli) of the CY threefold.",
+        "complex-structure moduli) of the CY threefold. For the polytope: "
+        "h11 = sum over 2-faces of int(f)*int(dual f) + "
+        "|points_not_interior_to_facets| - 5; the sum vanishes exactly when "
+        "the polytope is N-favorable.",
         "get_polytope_info(ks_ind)['h11'], get_polytope_info(ks_ind)['h21']",
         # NB: no bare 'h11'/'h21' synonyms -- they appear as the spec 'h11=X'
         # in almost every question and would false-trigger the scanner.
         ["hodge number", "hodge numbers", "hpq"]),
+    "lattice volume": (
+        "The lattice-normalized volume of the polytope (integer; the "
+        "Euclidean volume times dim factorial).",
+        "get_polytope(ks_ind).volume()",
+        ["normalized volume", "polytope volume", "volume of the polytope"]),
+    "dual point count": (
+        "Number of lattice points of the dual (polar) polytope.",
+        "len(get_polytope(ks_ind).dual().points())",
+        ["points of the dual", "dual lattice points",
+         "lattice points of the dual polytope"]),
+    "points not interior to facets": (
+        "Lattice points of the polytope that are not interior to any facet "
+        "(includes the origin). This is the point configuration used for "
+        "fine triangulations in 4d, and for favorable polytopes "
+        "h11 = this count - 5.",
+        "len(get_polytope(ks_ind).points_not_interior_to_facets())",
+        ["points not interior to a facet", "non-facet-interior points",
+         "triangulation point configuration"]),
+    "non-toric divisors": (
+        "Divisors of the CY not inherited from the toric variety, counted "
+        "by sum over 2-faces of int(f)*int(dual f). Nonzero exactly when "
+        "the polytope is NOT N-favorable; this is the correction term in "
+        "the h11 formula.",
+        "sum(len(f.interior_points()) * len(f.dual().interior_points()) "
+        "for f in get_polytope(ks_ind).faces(2))",
+        ["non toric divisors", "favorability correction",
+         "h11 correction term"]),
+    "content id": (
+        "Durable content-addressed identity of the polytope: a hash of its "
+        "affine normal form, invariant under GL(n,Z) lattice changes and "
+        "translations -- the same abstract polytope gets the same id "
+        "everywhere. Use it to cite or deduplicate polytopes.",
+        "content_id(ks_ind)",
+        ["content hash", "polytope hash", "canonical id",
+         "normal form hash"]),
+    "normal form": (
+        "The canonical vertex representative of the polytope's "
+        "GL(n,Z)-and-translation equivalence class (PALP affine normal "
+        "form). Two polytopes are lattice-equivalent iff their normal "
+        "forms are equal.",
+        "get_polytope(ks_ind).normal_form(affine_transform=True)",
+        ["affine normal form", "palp normal form", "canonical form"]),
     "euler characteristic": (
         "Euler characteristic of the CY threefold, 2*(h11 - h21).",
         "get_cy_info(ks_ind, h)['euler_characteristic']",
@@ -385,29 +430,19 @@ def expected_markers(message: str) -> set:
 
 
 # human-read
-def glossary_context(message: str, max_terms: int = 4,
-                     recipe_only: bool = False) -> str:
+def glossary_context(message: str, max_terms: int = 4) -> str:
     """Scan a message for glossary terms (as whole-token phrases) and return
     their definitions + recipes as a context block, or "" if none. The harness
     appends this to a user message so the model gets the translation without
     having to recognize it should look the term up. Conservative by design:
-    when it misses a term, the cy_glossary tool is the backup.
-
-    recipe_only=True returns just the recipes (no paragraph definitions) -- a
-    lean view for the ENGINEER, which needs the code pattern, not the prose."""
+    when it misses a term, the cy_glossary tool is the backup."""
     keys = sorted(_matched_keys(message),
                   key=lambda k: -len(k))[:max_terms]
     if not keys:
         return ""
-    if recipe_only:
-        lines = ["(recipes for terms in this step:)"]
-        for k in keys:
-            _d, recipe, _s = _GLOSSARY[k]
-            lines.append(f"- {k}: {recipe}")
-    else:
-        lines = ["(CYTools glossary -- terms detected in this request, with the "
-                 "recipe to use:)"]
-        for k in keys:
-            definition, recipe, _syns = _GLOSSARY[k]
-            lines.append(f"- {k}: {definition} Recipe: {recipe}")
+    lines = ["(CYTools glossary -- terms detected in this request, with the "
+             "recipe to use:)"]
+    for k in keys:
+        definition, recipe, _syns = _GLOSSARY[k]
+        lines.append(f"- {k}: {definition} Recipe: {recipe}")
     return "\n".join(lines)

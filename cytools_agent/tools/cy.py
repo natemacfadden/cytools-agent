@@ -139,6 +139,10 @@ def _mori_cone(cy, which):
 def _cy_info_one(ks_ind, heights, t, cone):
     """CY invariants for ONE triangulation (heights is one vector or None);
     get_cy_info wraps this in a _ResultList. See get_cy_info's docstring."""
+    import time as _time
+    from cytools_agent.tools import costs
+    from cytools_agent.tools.polytope import _h11_of
+    _t0 = _time.monotonic()
     cy = get_cy(ks_ind, heights)
     dok = cy.intersection_numbers(in_basis=True, format="dok")
     info = _InfoDict({
@@ -151,6 +155,8 @@ def _cy_info_one(ks_ind, heights, t, cone):
         "n_prime_toric_divisors": len(cy.prime_toric_divisors()),
     })
     if t is None:
+        costs.record("get_cy_info", _time.monotonic() - _t0,
+                     h11=_h11_of(ks_ind), with_t=False)
         return info
 
     mori = _mori_cone(cy, cone)
@@ -174,6 +180,8 @@ def _cy_info_one(ks_ind, heights, t, cone):
     info["divisor_volumes"] = (0.5 * ktt).tolist()
     info["cy_volume"] = float(ktt @ t / 6)
     info["curve_volumes"] = curve_vols.tolist()   # reduce as needed: min/max
+    costs.record("get_cy_info", _time.monotonic() - _t0,
+                 h11=_h11_of(ks_ind), with_t=True, cone=cone)
     return info
 
 

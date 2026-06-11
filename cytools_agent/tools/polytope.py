@@ -89,6 +89,10 @@ class _InfoDict(dict):
 
 
 _CACHE   = {} # ks_ind -> vertices (list[list[int]])
+_CIDS    = {} # ks_ind -> content id: sha256 of the affine normal form, so the
+              # name is invariant under GL(n,Z) x Z^n relabeling -- a durable,
+              # database-independent identity. Computed lazily (~100 ms each,
+              # PALP-bound) and memoized here + persisted with the cache.
 _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool, "ids": [...]}.
               # "ids" is the DB-ORDER id list this query has fetched (a
               # contiguous prefix from index 0). Serving a query from the
@@ -113,12 +117,12 @@ _DISK = os.environ.get("CYTOOLS_AGENT_KS_CACHE", "")
 
 
 # Cache format version. Bumped when the id-assignment semantics change; the
-# loader and the merge REFUSE data from any other version, so a long-running
+# loader and the merge refuse data from any other version, so a long-running
 # process with older code in memory (a stale Jupyter kernel, an old MCP
 # server) can clobber the file but can never silently poison a new process
 # -- measured: a stale writer relabeled ids onto different geometry and
-# flipped 8 corpus answers.
-_FORMAT = 2
+# flipped 8 corpus answers. v3 adds content ids ("cids").
+_FORMAT = 3
 
 
 # human-read
@@ -133,6 +137,28 @@ def _load_disk_cache():
     if d.get("format") != _FORMAT:
         return                      # other-era data: ignore it entirely
     _CACHE.update(d.get("cache", {}))
+    _CIDS.update(d.get("cids", {}))
+    # spot-check: recompute a few stored content ids from the stored
+    # geometry; any mismatch means the file is corrupt -- trust none of it
+    # ~1 s at 10 samples (dev-only path); catches the measured incident's
+    # corruption rate (~17% of entries) with ~84% probability per load --
+    # the merge-side conflict detector covers ALL shared keys on every save
+    import random as _random
+    sample = _random.sample(sorted(set(_CIDS) & set(_CACHE)),
+                            k=min(10, len(set(_CIDS) & set(_CACHE))))
+    for ks in sample:
+        p = cytools.Polytope(_CACHE[ks])
+        import hashlib
+        import numpy as np
+        nf = np.ascontiguousarray(
+            np.array(p.normal_form(affine_transform=True), dtype=np.int64))
+        if hashlib.sha256(nf.tobytes()).hexdigest()[:12] != _CIDS[ks]:
+            print(f"WARNING: cached geometry for {ks} fails its content-id "
+                  f"check -- discarding the disk cache as corrupt.")
+            _CACHE.clear()
+            _CIDS.clear()
+            _FETCHED.clear()
+            return
     for k, v in d.get("fetched", {}).items():
         try:                       # a malformed/corrupt entry must not break import
             h11s, h21s = k.split(",")
@@ -160,8 +186,25 @@ def _save_disk_cache():
                     d = json.load(f)
                 if d.get("format") != _FORMAT:
                     d = {}          # never merge other-era data
-                _CACHE.update({k: v for k, v in d.get("cache", {}).items()
+                # relabeling detector: the same ks_ind with different
+                # geometry on the two sides means somebody's labels are
+                # wrong -- drop that entry entirely (forces a clean refetch)
+                # rather than guessing which side to trust
+                disk_cache = d.get("cache", {})
+                for k in set(disk_cache) & set(_CACHE):
+                    if (sorted(map(tuple, disk_cache[k]))
+                            != sorted(map(tuple, _CACHE[k]))):
+                        print(f"WARNING: conflicting geometry for {k} "
+                              f"between processes -- dropping it from the "
+                              f"shared cache.")
+                        del _CACHE[k]
+                        del disk_cache[k]
+                        _CIDS.pop(k, None)
+                        d.get("cids", {}).pop(k, None)
+                _CACHE.update({k: v for k, v in disk_cache.items()
                                if k not in _CACHE})
+                _CIDS.update({k: v for k, v in d.get("cids", {}).items()
+                              if k not in _CIDS})
                 for k, v in d.get("fetched", {}).items():
                     try:
                         h11s, h21s = k.split(",")
@@ -181,7 +224,7 @@ def _save_disk_cache():
                    for (h11, h21), v in _FETCHED.items()}
         with open(_DISK, "w") as f:
             json.dump({"format": _FORMAT, "cache": _CACHE,
-                       "fetched": fetched}, f)
+                       "cids": _CIDS, "fetched": fetched}, f)
     except OSError:
         pass
 
@@ -196,6 +239,40 @@ _KS_PAIR = {tuple(int(x) for x in k.split(",")): v
 _KS_H11 = {int(k): v for k, v in _KS["by_h11"].items()}
 
 _load_disk_cache()   # serve prior real fetches from disk, sparing the KS DB
+
+# human-read
+def _h11_of(ks):
+    """h11 parsed from an id string, else None (cheap cost-model feature)."""
+    try:
+        return int(str(ks).split("_")[0].split("-")[1])
+    except (IndexError, ValueError):
+        return None
+
+
+# human-read
+def content_id(p_or_ks) -> str:
+    """Durable content-addressed identity: the first 12 hex of sha256 over
+    the polytope's AFFINE NORMAL FORM -- invariant under GL(n,Z) lattice
+    changes and translations, so the same abstract polytope gets the same id
+    on any machine, from any database, in any embedding. Memoized per ks_ind
+    (the normal form costs ~100 ms, PALP-bound)."""
+    import hashlib
+    import numpy as np
+    ks = p_or_ks if isinstance(p_or_ks, str) else None
+    if ks is not None and ks in _CIDS:
+        return _CIDS[ks]
+    p = get_polytope(p_or_ks)
+    nf = np.ascontiguousarray(
+        np.array(p.normal_form(affine_transform=True), dtype=np.int64))
+    cid = hashlib.sha256(nf.tobytes()).hexdigest()[:12]
+    if ks is not None:
+        _CIDS[ks] = cid
+        # persist in batches -- a full-file save per cid would rewrite a
+        # multi-MB file once per polytope in a sweep
+        if len(_CIDS) % 25 == 0:
+            _save_disk_cache()
+    return cid
+
 
 # model-read (exposed in the run_python namespace)
 @forgive_kwargs
@@ -310,9 +387,13 @@ def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
         return
 
     _ks_guard(h11, h21, limit)
+    from cytools_agent.tools import costs
+    _t0 = time.monotonic()
     polys = cytools.fetch_polytopes(
         h11=h11, h21=h21, limit=limit, dim=4, lattice="N", as_list=True
     )
+    costs.record("ks_fetch", time.monotonic() - _t0, h11=h11,
+                 limit=limit, n_returned=len(polys))
 
     # polytopes arrive in lexicographic (h11, h21, ind) order, so ind counts
     # within each (h11, h21) group, reset when the group changes. The ordered
@@ -434,7 +515,9 @@ def get_polytope_info(ks_ind: str) -> dict:
         defined for this polytope (e.g. Hodge numbers of a 2d subpolytope) is
         OMITTED rather than raising; dim is always present.
     """
+    from cytools_agent.tools import costs
     p = get_polytope(ks_ind)
+    _t0 = time.monotonic()
 
     # graceful degradation: the tool also accepts raw Polytope objects (e.g.
     # a 2d reflexive subpolytope), for which several fields are undefined --
@@ -447,9 +530,14 @@ def get_polytope_info(ks_ind: str) -> dict:
         except Exception:
             return None
 
-    # dimension-generic fields: meaningful for any lattice polytope
+    # dimension-generic fields: meaningful for any lattice polytope.
+    # content_id appears only when already memoized -- computing it costs
+    # ~100 ms (PALP), too much to add to every info call; ask explicitly via
+    # content_id(ks_ind) when needed.
     fields = {
         "dim": int(p.dim()),
+        "content_id": (_CIDS.get(ks_ind)
+                       if isinstance(ks_ind, str) else None),
         "n_points": len(p.points()),
         "n_points_interior_to_facets": len(p.points_interior_to_facets()),
         "n_vertices": len(p.vertices()),
@@ -476,6 +564,8 @@ def get_polytope_info(ks_ind: str) -> dict:
             "n_rigid_divisors": opt(lambda: _n_rigid_divisors(p)),
             "genera_2face": opt(lambda: _genera_2face(p)),
         })
+    costs.record("get_polytope_info", time.monotonic() - _t0,
+                 h11=_h11_of(ks_ind), n_points=fields["n_points"])
     return _InfoDict({k: v for k, v in fields.items() if v is not None})
 
 # human-read
