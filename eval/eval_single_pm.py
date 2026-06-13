@@ -53,6 +53,7 @@ def main():
               "[--reps N] [--timeout S] [--corpus path] [--out path]")
         sys.exit(1)
     model = args[0]
+    raw = "--raw" in args          # L1 baseline: raw cytools, vanilla loop
     corpus = args[args.index("--corpus") + 1] if "--corpus" in args else CORPUS
     timeout = int(args[args.index("--timeout") + 1]) \
         if "--timeout" in args else 600
@@ -73,7 +74,7 @@ def main():
             _code.reset_namespace()
             _code.reset_figures()
             t0 = time.monotonic()
-            ans = run(model, rows[i]["question"], timeout)
+            ans = run(model, rows[i]["question"], timeout, raw=raw)
             dt = round(time.monotonic() - t0, 1)
             status = grade(ans, rows[i]["answer"])
             results.append({"id": i, "rep": rep, "kind": rows[i]["kind"],

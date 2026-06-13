@@ -1,0 +1,6 @@
+{"id": 1, "kind": "L1-fetch", "question": "Fetch the first 5 polytopes at h11=3 and report how many you fetched.", "answer": 5}
+{"id": 2, "kind": "L2-single-invariant", "question": "What is the maximum 2-face genus of the polytope h11-3_h21-43_ind-0?", "answer": 3}
+{"id": 3, "kind": "L3-small-reduce", "question": "For the first 5 polytopes at h11=3, what is the total number of NTFE triangulations across all of them?", "answer": 7}
+{"id": 4, "kind": "L4-paired-retention", "question": "For each of the first 10 polytopes at h11=3, find its h21 and its number of NTFE triangulations. Which h21 value belongs to the polytope with the most NTFE triangulations?", "answer": 45}
+{"id": 5, "kind": "L5-large-reduce", "question": "Among the first 50 polytopes at h11=3, what is the mean number of NTFE triangulations?", "answer": 1.46}
+{"id": 6, "kind": "L6-compute-plot", "question": "For the first 20 polytopes at h11=3, make a scatter plot of the NTFE triangulation count vs h21, and report the mean NTFE count.", "answer": 1.25}

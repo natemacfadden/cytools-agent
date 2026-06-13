@@ -1,0 +1,25 @@
+{"id": 0, "question": "Does the automorphism group have a relationship with a polytope's h21?", "answer": null, "kind": "exploratory", "source": "n8", "belief": "probably not but it might look weird since there are more polys at medium h21"}
+{"id": 1, "question": "For each h21, what's the smallest number N such that exists a polytope w/ 2-face having <= N points", "answer": null, "kind": "search", "source": "n8"}
+{"id": 2, "question": "What's the smallest h11?", "answer": null, "kind": "single-fact", "source": "n8"}
+{"id": 3, "question": "Can you make a plot of h21 vs h11?", "answer": null, "kind": "plot", "source": "n8"}
+{"id": 4, "question": "What's the largest polytope?", "answer": "the sole polytope with h11=491", "kind": "single-fact", "source": "n8"}
+{"id": 5, "question": "Plot the number of NTFEs vs h11<=5.", "answer": null, "kind": "aggregate-plot", "source": "n8"}
+{"id": 6, "question": "How does cy volume scale with kahler moduli? I.e., if I scale kahler moduli t -> s*t, how does CY volume change?", "answer": null, "kind": "conceptual", "source": "n8"}
+{"id": 7, "question": "Can you grab me a polytope with h11=5 as well as all of its NTFEs?", "answer": null, "kind": "fetch-task", "source": "n8"}
+{"id": 8, "question": "What's the minimum CY volume at totskc across low h11? Say <= 5.", "answer": null, "kind": "aggregate", "source": "n8"}
+{"id": 9, "question": "How many NTFEs are there at h11=105?", "answer": null, "kind": "infeasible-or-refusal", "source": "n8"}
+{"id": 10, "question": "What polytope has the most number of NTFEs?", "answer": null, "kind": "search-unbounded", "source": "n8"}
+{"id": 11, "question": "Are there more vex phases than triangulation ones?", "answer": null, "kind": "conceptual", "source": "n8"}
+{"id": 12, "question": "Fetch me a polytope at h11=4. How many triangulations does it have? How many vector configurations? Fans?", "answer": null, "kind": "multi-part", "source": "n8"}
+{"id": 13, "question": "Do the heights defining a FRST also work for vex?", "answer": null, "kind": "conceptual", "source": "n8"}
+{"id": 14, "question": "Find me a point in Kahler moduli space where all divisor volumes are (1,1,...,1).", "answer": null, "kind": "computational-task", "source": "n8"}
+{"id": 15, "question": "How high can I compute all NTFEs of a polytope?", "answer": null, "kind": "meta-capability", "source": "n8"}
+{"id": 16, "question": "How do hodge numbers relate to the number of points?", "answer": null, "kind": "exploratory", "source": "n8"}
+{"id": 17, "question": "Plot me the number of 2D reflexive subpolytopes for 2<=h11<=5.", "answer": null, "kind": "aggregate-plot", "source": "n8"}
+{"id": 18, "question": "How big is Kahler moduli space? I.e., the dimension?", "answer": null, "kind": "conceptual", "source": "n8"}
+{"id": 19, "question": "How does make_star=True work?", "answer": null, "kind": "documentation", "source": "n8"}
+{"id": 20, "question": "Do divisor volumes smoothly vary across a flop transition?", "answer": null, "kind": "conceptual", "source": "n8"}
+{"id": 21, "question": "Compute the GVs to max-deg=10 for an h11=3 polytope and tell me the max invariant.", "answer": null, "kind": "numeric", "source": "n8"}
+{"id": 22, "question": "Make me a plot comparing the time to generate all NTFEs for h11<=4 and to generate all FRSTs.", "answer": null, "kind": "benchmark-plot", "source": "n8"}
+{"id": 23, "question": "What GV invariant is most common to associate to a wall of a Kahler cone for h11<=3?", "answer": null, "kind": "aggregate", "source": "n8"}
+{"id": 24, "question": "How does volume relate to h11? h21?", "answer": null, "kind": "exploratory", "source": "n8"}

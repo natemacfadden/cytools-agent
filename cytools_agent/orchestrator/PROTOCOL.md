@@ -3,10 +3,29 @@
 How a question becomes an answer: the enforced message formats first, then the
 check layers. File references are to this package unless noted.
 
-The trust model behind every design choice here: models are treated as
-trying to be helpful but untrustworthy. Model output is claim; only
-harness-captured execution is evidence; no claim reaches the user unverified
-where a verification exists.
+The principle behind every design choice here: the model is treated as
+**helpful but untrustworthy**, and is never relied on for the two things
+models get wrong -- what they *know* and what they *claim*. Each gets a
+pillar.
+
+- **Knowledge from source (the encyclopedia).** Domain terms resolve to
+  source-derived definitions and the exact recipe to compute them
+  (`cy_glossary` / `reference`, indexed by topic with cross-references), and
+  conceptual questions are answered from that text and real CYTools
+  docstrings -- never from the model's own memory. An admission gate
+  (`eval/verify_glossary.py`) proves every recipe still executes and every
+  invariant still holds, so the encyclopedia cannot drift from the library.
+- **Results from evidence (the truth ledger).** Model output is *claim*;
+  only harness-captured execution is *evidence*. Every curated tool call is
+  recorded in a ledger the model can read but never author; answers cite the
+  rows backing each number; computed data is checked against machine-verified
+  identities and the harness refuses on violation. No claim reaches the user
+  unverified where a verification exists.
+
+Those two pillars are model-strength-independent. Everything else in this
+document -- the enforced message formats, the pipeline shapes, the check
+layers -- is the **permissive scaffolding** that lets a weak model drive
+*within* those guarantees; it is the part that matters less as models improve.
 
 ## Actors and channels
 
@@ -45,11 +64,21 @@ describes the work as one of:
 
 - Shape A (map): fetch polytopes by Hodge numbers -> compute 1-3 named
   quantities once per polytope -> aggregate them -> optionally plot them.
+  A whole-database variant: when the map fetches no polytopes but reads the
+  Kreuzer-Skarke census instead (fetch.h11 = null), the harness serves the
+  local per-h11 count table -- columns h11 and count -- so "how many
+  polytopes in total" or "which h11 is most common" is answered with no
+  database query and no per-polytope work.
 - Shape B (search): sweep h11 levels looking for any polytope satisfying a
   per-polytope condition (largest h11 / smallest h11 / any).
+- Shape C (explain): the question asks what a term MEANS, how a function
+  works, or what the system can do -- not for a number or a plot. The model
+  names the terms/topics; the harness answers from the reference database
+  (glossary definitions + recipes and real CYTools docstrings), never from
+  the model's own knowledge.
 
 The compile step asks the model to fill that form -- or to say the question
-fits neither template, in which case it sets `fits=false` in the form.
+fits none of the templates, in which case it sets `fits=false` in the form.
 "Recompile" below always means: issue the same compile call again, with the
 failure reason appended to the request text, so the model fills the form a
 second time knowing exactly what was wrong with its first attempt. Every
@@ -77,8 +106,10 @@ final verification (defined below)
 "Did the pipeline attempt succeed?" is no in exactly three cases, checked
 in this order; everything else is yes:
 
-1. The model answered `fits=false` (the question matches neither shape A
-   nor shape B). Straight to the walk, no retry.
+1. The model answered `fits=false` (the question matches no shape). Straight
+   to the walk, no retry. (A shape-C explain attempt that resolves no
+   glossary or API entries also falls here -- the walk can read docstrings
+   live and may do better than an empty reference answer.)
 2. The spec fails validation (section "check layers", layer 2). One
    recompile with the validation failure appended; if the new spec is also
    invalid, the walk.
@@ -138,12 +169,13 @@ One schema-constrained call fills the spec form:
 
 ```
 { fits:  bool,
-  fetch: {h11: int|[int], h21, limit, favorable, use_stored},
+  fetch: {h11: int|[int]|null, h21, limit, favorable, use_stored},  # h11=null: census
   map:   {name: "<one-item Python expr over ks_ind>", ...},   # 1-3 columns
   reduce:[{name, op: mean|min|max|sum|count|argmax|argmin|ids_where_positive, of}],
   plot:  [{kind, x, y, color, logx, logy}, ...],              # <=4 figures
   search:{map: {name: expr}, condition: "<bool expr over names>",
-          objective: largest_h11|smallest_h11|any} }          # shape B
+          objective: largest_h11|smallest_h11|any},           # shape B
+  explain:{kind: concept|capability, queries: [str, ...]} }    # shape C
 ```
 
 If the spec validates (next section), the harness executes it
@@ -293,6 +325,9 @@ unlike string matching or an LLM judge. Where each is used:
 
 (The remaining non-LLM checks are regex- or marker-based rather than tree-
 based: the figure-saved marker, the h11-range and plot-words shape guards,
+the explain compute-intent guard (an explain spec whose raw question carries
+a result-signal word -- largest/smallest/how many/plot/... -- is rejected so
+the model cannot dodge a computation by explaining a term it recognizes),
 and the answer-number extraction used by voting.)
 
 ## Known weak point

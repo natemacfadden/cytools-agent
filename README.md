@@ -3,6 +3,8 @@
 
 An agent loop and tool harness that lets a local LLM (via [Ollama](https://ollama.com)) drive [CYTools](https://github.com/LiamMcAllisterGroup/cytools) -- fetching polytopes, computing triangulations and Calabi-Yau invariants, running arbitrary CYTools code, and exporting the session as a standalone script.
 
+It treats the model as *helpful but untrustworthy*, never relying on it for the two things models get wrong: its **knowledge** comes from a source-derived encyclopedia and its **results** from a harness-written evidence ledger ([How it works](#how-it-works)).
+
 > **WARNING -- no sandbox.** The `run_python` tool executes model-generated code directly on your machine, with no isolation. Run only models and prompts you trust, on a machine where that is acceptable.
 
 ## Installation
@@ -79,33 +81,57 @@ The package is an editable install: after `git pull`, just reconnect the server 
 
 ## Evaluation
 
-`eval/corpus.jsonl` holds ~100 single-fact questions with known answers and the standalone code that produces them; `eval/pm_corpus.jsonl` holds 10 hard multi-step research problems; `eval/ladder.jsonl` is a 6-rung difficulty ladder. Run from the repo root:
+Three question corpora live under `eval/`, differing by who wrote them and whether the answers are known:
+
+| Corpus | Questions | Answers | Written by |
+|---|---|---|---|
+| `eval/corpus.jsonl` | ~100 single-fact | known, with the code that reproduces each | agent-extracted from CYTools example notebooks |
+| `eval/pm_corpus.jsonl` | 10 hard multi-step plot/research | known | agent-authored during development |
+| `eval/heldout.jsonl` | 25 authentic research questions | held out (computed later) | **human-written** (frozen; source `n8`) |
+
+(`eval/ladder.jsonl` is a 6-rung difficulty ladder, not a research corpus.) Run from the repo root — pick the line for the corpus you want:
 
 ```sh
-python -m eval.eval qwen3:8b 30                                # corpus sample, graded
-python -m eval.eval qwen3:8b --ids 54,57,58 --reps 3           # targeted re-runs
-python -m eval.corpus verify                                   # every stored answer still reproduces
-python -m eval.eval_orch --ids 3,4,6,9 --reps 3 --model qwen3:8b   # orchestrator on the hard corpus
-python -m eval.eval_orch --corpus eval/ladder.jsonl --reps 5   # capability profile by rung
-python -m eval.eval_single_pm qwen3:8b --ids 3,4,6,9 --reps 3  # single-agent comparison
-python -m eval.verify_glossary                                 # invariants + recipes admission gate
+# agent-written, known answers -> auto-graded against the stored truths
+python -m eval.eval qwen3:8b 30                       # stratified sample of corpus.jsonl
+python -m eval.eval qwen3:8b --ids 54,57,58 --reps 3  # targeted re-runs
+python -m eval.corpus verify                          # confirm every stored answer still reproduces
+
+# agent-written hard problems -> orchestrator, auto-graded
+python -m eval.eval_orch --corpus eval/pm_corpus.jsonl --reps 3 --model qwen3:8b
+
+# human-written questions: truths are held out, so each run is RECORDED (status RUBRIC,
+# graded by hand later) rather than auto-scored. The system ladder is the runner that
+# handles null answers; it works on ANY corpus, holding the model + questions fixed and
+# varying one stack layer per rung L0-L4 (see diagnostics/README.md).
+python -m eval.system_ladder --rung L3 --corpus eval/heldout.jsonl --model qwen3:8b
+
+python -m eval.verify_glossary                        # invariants + recipes admission gate
 ```
 
-## Under the hood
+The system ladder writes self-describing result files (rung, model, corpus, commit, seed, date + per-question results) to `diagnostics/system_ladder/`, never overwriting a prior run.
 
-Normal use needs none of this; `setup.sh` configures everything.
+## How it works
 
-The orchestrator wraps the tools in scaffolding that measurably lifts small local models (qwen3:8b: 0% to ~40% single-run, ~80% voted, on the hard plot corpus). Each piece is a flag, on by default, `=0` to disable:
+The harness rests on one principle: **the model is helpful but untrustworthy.** It is never trusted for the two things models get wrong -- what they *know* and what they *claim* -- and each gets a pillar.
+
+**The encyclopedia -- knowledge from source.** `cy_glossary` / `reference` map a domain term to a *source-derived* definition and the exact recipe to compute it with these tools. `reference()` is indexed: a table of contents over topic sections, with cross-references, so the model can browse rather than guess. Conceptual questions are answered from that text and from real CYTools docstrings -- never from the model's own memory. An admission gate (`eval/verify_glossary.py`) proves every recipe still executes and every invariant still holds on ~145 polytopes, so the encyclopedia cannot silently drift from the library it describes.
+
+**The truth ledger -- results from evidence.** Every curated tool call is recorded in a harness-written ledger: exact arguments and structured results, rows the model can read but never author. Answers cite the rows backing each number; a classifier marks every numeric claim row-backed, weaker stdout-backed, or unbacked; and computed data is audited against machine-checked identities (`cytools_agent/tools/invariants.py`) -- on a violation the harness *refuses* rather than guess. The same thinking extends to the data layer: the KS cache is a read-only trusted base no run can poison, plus a writable overlay for newly discovered polytopes.
+
+These two are **model-strength-independent** -- they help a frontier model as much as a small local one, because they replace exactly what no model can be trusted for. On top sits a third, more disposable layer: **permissive scaffolding** that lets a *weak* model actually drive -- a typed pipeline (fetch -> map -> reduce -> plot, or search) the harness executes deterministically, schema-constrained decoding so malformed replies cannot be sampled, and a forgiving plan-and-walk fallback. This is most of the line count and what measurably lifts small models (qwen3:8b: 0% to ~40% single-run, ~80% voted, on the hard plot corpus); it matters less as models improve.
+
+Normal use needs none of the knobs below; `setup.sh` configures everything. The scaffolding pieces are flags, on by default, `=0` to disable:
 
 | Flag | What it does |
 |---|---|
 | `CYTOOLS_SCHEMA_ACT` | Model replies decoded under a JSON Schema, so malformed or empty replies cannot be sampled at all. |
-| `CYTOOLS_PIPELINE` | Questions fitting fetch -> map -> reduce -> plot (or search) compile to a typed spec the harness executes deterministically; misfits fall back to the plan-and-walk path. |
+| `CYTOOLS_PIPELINE` | Questions fitting fetch -> map -> reduce -> plot (or search, or explain-from-the-encyclopedia) compile to a typed spec the harness executes deterministically; misfits fall back to the plan-and-walk path. |
 | `CYTOOLS_MAP_TOOLS` | `compute_for_each` / `make_plot` / `search_polytopes`. |
 | `CYTOOLS_FINISH_FORGIVE` | Accept `answer = ...` scratchpad assignment as the step finish signal (grounding still enforced). |
 | `CYTOOLS_NUM_CTX` | Per-request context size (default 16384; `0` = server default). |
 | `CYTOOLS_KS_BUDGET` | Real database queries allowed per session (default 40; also `CYTOOLS_KS_MIN_INTERVAL`, `CYTOOLS_KS_MAX_LIMIT`). |
 | `CYTOOLS_RUN_TIMEOUT` | Wall-clock cap on one `run_python` call (default 150 s). |
-| `CYTOOLS_AGENT_KS_CACHE` | Opt-in (default off): persist fetched polytopes across runs. Dev feature; grows large. |
+| `CYTOOLS_AGENT_KS_CACHE` / `CYTOOLS_AGENT_KS_BASE` | Opt-in (default off): the writable overlay and read-only trusted base of the persisted polytope cache. Dev feature; grows large. |
 
-Every tool call is recorded in a harness-written ledger (exact arguments and structured results -- models can read rows but never write them), answers cite the rows backing their numbers, and computed data is audited against machine-checked identities (`cytools_agent/tools/invariants.py`). The protocol between the PM, the engineer, and the check layers is documented in `cytools_agent/orchestrator/PROTOCOL.md`; the A/B record behind each design choice is in `scratch/AB_RESULTS.md`.
+The protocol between the PM, the engineer, and the check layers is documented in `cytools_agent/orchestrator/PROTOCOL.md`; the A/B record behind each design choice is in `scratch/AB_RESULTS.md`.

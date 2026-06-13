@@ -9,3 +9,5 @@ notebooks/scratch/
 *.png
 *.log
 *.jsonl
+!eval/*.jsonl
+diagnostics/system_ladder/*.json
