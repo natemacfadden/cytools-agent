@@ -73,11 +73,20 @@ TOOL_CHEATSHEET = (
     "  fetch_polytopes(limit, h11, h21=None, favorable=None) -> list of ids "
     "(do not guess limit -- use ks_stats(h11) for the count; for FAVORABLE "
     "ones pass favorable=True; do not guess h21)\n"
-    "  ks_stats(h11, h21=None) -> {count, exists, h21_values}\n"
+    "  ks_stats(h11, h21=None) -> {count, exists, h21_values}; ks_stats() "
+    "with NO args -> {total, h11_min, h11_max, count_by_h11} (whole-database "
+    "census, local, no query)\n"
+    "  reference(query) -> {glossary:[{term,definition,recipe}], api:[{name,"
+    "signature,doc}]}; look up what a term MEANS or how a function works "
+    "BEFORE guessing. reference() with no argument -> the table of contents "
+    "(topic sections + terms); reference('<section title>') -> a whole "
+    "section\n"
     "  get_polytope_info(ks_ind) -> {h11, h21, n_rigid_divisors, genera_2face, "
     "facedim_to_nfaces, ...}\n"
-    "  get_heights(ks_ind, n=None, kind='NTFE') -> {shape, heights}; the "
-    "triangulations are get_heights(ks_ind)['heights'] (a list of height vectors)\n"
+    "  get_heights(ks_ind, n=None, kind='NTFE', sampler='auto') -> {shape, "
+    "heights}; the triangulations are get_heights(ks_ind)['heights'] (a list "
+    "of height vectors); for big polytopes pass n=<count> to sample "
+    "(sampler='gnn' = near-uniform, a sample NOT the census)\n"
     "  get_cy(ks_ind, heights=None) -> one CY (or a list for many heights)\n"
     "  get_cy_info(ks_ind, heights=None, t=None, cone='Kcup') -> dict (or a list "
     "for many heights); t='tip' adds cy_volume and curve_volumes (a list -- "
@@ -307,7 +316,7 @@ def _act_args(msg):
 
 
 def run_engineer(model, evidence, round_no, prompt, max_steps=14,
-                 think=False):
+                 think=False, deadline=None):
     """Run the engineer to completion, streaming observations into `evidence`.
     Each coding step is one observation (ran_code/received_output captured from
     the real run; a non-empty intent is required; a finishing answer is
@@ -364,6 +373,12 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14,
     # so an unbroken error loop still terminates.
     consumed, total, hard = 0, 0, max_steps + 8
     while consumed < max_steps and total < hard:
+        if deadline is not None and time.monotonic() > deadline:
+            # the session's wall-clock budget is spent: end the round
+            # honestly instead of letting prompts balloon until the
+            # transport times out (measured: 6 of 25 held-out questions
+            # died that way)
+            return finish("(session time budget exhausted)", False)
         total += 1
         consumed += 1            # refunded below if this step's code errored
         _t = time.monotonic()

@@ -112,6 +112,11 @@ def main():
     ids = sample_polytopes(n)
     fails = verify_invariants(ids, cy_sample)
     fails += verify_recipes(ids[0])
+    # the reference index must cover every glossary term (the module's import
+    # asserts this; report it so the coverage is visible in the gate)
+    from cytools_agent.tools.glossary import _SECTIONS, _GLOSSARY
+    print(f"== reference index: {len(_GLOSSARY)} terms across "
+          f"{len(_SECTIONS)} sections, all covered ==", flush=True)
     print(f"\n{'ALL CLEAN' if fails == 0 else f'{fails} FAILURES'} "
           f"({len(ids)} polytopes)")
     sys.exit(1 if fails else 0)
