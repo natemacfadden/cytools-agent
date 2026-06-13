@@ -115,6 +115,16 @@ _REPO = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _DISK = os.environ.get("CYTOOLS_AGENT_KS_CACHE", "")
 
+# Optional READ-ONLY trusted base layer. Loaded first and NEVER written, so no
+# run -- including an untrusted model-driven eval -- can poison the data the
+# old corpus depends on (regression protection). The writable overlay (_DISK)
+# then holds only NEWLY discovered polytopes; reads merge base+overlay, writes
+# touch the overlay only. This is how we BOTH protect the trusted census AND
+# keep exposing the ability to discover new polytopes.
+_BASE = os.environ.get("CYTOOLS_AGENT_KS_BASE", "")
+_BASE_KEYS = set()        # ks_inds loaded from the base -> excluded from writes
+_BASE_FETCHED = set()     # (h11, h21) fetch keys loaded from the base
+
 
 # Cache format version. Bumped when the id-assignment semantics change; the
 # loader and the merge refuse data from any other version, so a long-running
@@ -126,49 +136,98 @@ _FORMAT = 3
 
 
 # human-read
-def _load_disk_cache():
-    if not _DISK or not os.path.exists(_DISK):
-        return
+def _read_cache_file(path):
+    """Read a cache file; return its dict, or None if absent/unreadable or
+    from a different format era (other-era data is never merged)."""
+    if not path or not os.path.exists(path):
+        return None
     try:
-        with open(_DISK) as f:
+        with open(path) as f:
             d = json.load(f)
     except (OSError, ValueError):
-        return
-    if d.get("format") != _FORMAT:
-        return                      # other-era data: ignore it entirely
-    _CACHE.update(d.get("cache", {}))
-    _CIDS.update(d.get("cids", {}))
-    # spot-check: recompute a few stored content ids from the stored
-    # geometry; any mismatch means the file is corrupt -- trust none of it
-    # ~1 s at 10 samples (dev-only path); catches the measured incident's
-    # corruption rate (~17% of entries) with ~84% probability per load --
-    # the merge-side conflict detector covers ALL shared keys on every save
+        return None
+    return d if d.get("format") == _FORMAT else None
+
+
+# human-read
+def _parse_fetched(d):
+    """Yield (key, record) for each well-formed fetched entry in a cache dict.
+    Drops legacy entries with no recorded id order (the next query refetches)."""
+    for k, v in d.get("fetched", {}).items():
+        try:
+            h11s, h21s = k.split(",")
+            if "ids" not in v:
+                continue
+            yield (int(h11s), int(h21s) if h21s else None), v
+        except (ValueError, TypeError):
+            continue
+
+
+# human-read
+def _spot_check_ok():
+    """Recompute a few stored content ids from the stored geometry; False on
+    any mismatch (the file is corrupt -- trust none of it). ~1 s at 10 samples.
+    Catches the measured ~17%-corruption incident with ~84% probability per
+    load; the merge-side conflict detector covers ALL shared keys on save."""
     import random as _random
-    sample = _random.sample(sorted(set(_CIDS) & set(_CACHE)),
-                            k=min(10, len(set(_CIDS) & set(_CACHE))))
-    for ks in sample:
+    import hashlib
+    import numpy as np
+    keys = sorted(set(_CIDS) & set(_CACHE))
+    for ks in _random.sample(keys, k=min(10, len(keys))):
         p = cytools.Polytope(_CACHE[ks])
-        import hashlib
-        import numpy as np
         nf = np.ascontiguousarray(
             np.array(p.normal_form(affine_transform=True), dtype=np.int64))
         if hashlib.sha256(nf.tobytes()).hexdigest()[:12] != _CIDS[ks]:
-            print(f"WARNING: cached geometry for {ks} fails its content-id "
-                  f"check -- discarding the disk cache as corrupt.")
-            _CACHE.clear()
-            _CIDS.clear()
-            _FETCHED.clear()
-            return
-    for k, v in d.get("fetched", {}).items():
-        try:                       # a malformed/corrupt entry must not break import
-            h11s, h21s = k.split(",")
-            if "ids" not in v:     # legacy entry from before order tracking:
-                continue           # cannot reconstruct the DB prefix -- drop
-                                   # the bookkeeping (vertices stay cached;
-                                   # the next query refetches the real order)
-            _FETCHED[(int(h11s), int(h21s) if h21s else None)] = v
-        except (ValueError, TypeError):
-            continue
+            return False
+    return True
+
+
+# human-read
+def _prune_dangling():
+    """Drop any fetched-record whose id list references geometry the cache does
+    not hold. A partial/corrupt write (observed: (2,74) listed ind-0 but only
+    ind-1 was cached) otherwise makes _cache_can_serve answer True while
+    get_polytope(ind-0) raises 'fewer than 1 ...'. Dropping the record forces a
+    clean refetch instead of serving a dangling reference."""
+    bad = [key for key, v in _FETCHED.items()
+           if any(i not in _CACHE for i in v.get("ids", []))]
+    for key in bad:
+        del _FETCHED[key]
+
+
+# human-read
+def _load_disk_cache():
+    # the read-only trusted base FIRST (its keys are excluded from writes), so
+    # it can never be overwritten by the overlay or by any run
+    base = _read_cache_file(_BASE)
+    if base is not None:
+        _CACHE.update(base.get("cache", {}))
+        _CIDS.update(base.get("cids", {}))
+        _BASE_KEYS.update(base.get("cache", {}))
+        for key, v in _parse_fetched(base):
+            _FETCHED[key] = v
+            _BASE_FETCHED.add(key)
+    # then the writable overlay -- it adds only what the base does not already
+    # have (base entries are authoritative, so the trusted census stands)
+    overlay = _read_cache_file(_DISK)
+    if overlay is not None:
+        _CACHE.update({k: v for k, v in overlay.get("cache", {}).items()
+                       if k not in _CACHE})
+        _CIDS.update({k: v for k, v in overlay.get("cids", {}).items()
+                      if k not in _CIDS})
+        for key, v in _parse_fetched(overlay):
+            if key not in _FETCHED:
+                _FETCHED[key] = v
+    if not _spot_check_ok():
+        print("WARNING: cached geometry fails its content-id check -- "
+              "discarding the disk cache as corrupt.")
+        _CACHE.clear()
+        _CIDS.clear()
+        _FETCHED.clear()
+        _BASE_KEYS.clear()
+        _BASE_FETCHED.clear()
+        return
+    _prune_dangling()
 
 
 # human-read
@@ -220,11 +279,16 @@ def _save_disk_cache():
             except (OSError, ValueError):
                 pass
         os.makedirs(os.path.dirname(_DISK), exist_ok=True)
+        # write the OVERLAY only: never persist base-layer entries (they live
+        # in the read-only base file and must not be duplicated/mutated here)
+        cache_out = {k: v for k, v in _CACHE.items() if k not in _BASE_KEYS}
+        cids_out = {k: v for k, v in _CIDS.items() if k not in _BASE_KEYS}
         fetched = {f"{h11},{'' if h21 is None else h21}": v
-                   for (h11, h21), v in _FETCHED.items()}
+                   for (h11, h21), v in _FETCHED.items()
+                   if (h11, h21) not in _BASE_FETCHED}
         with open(_DISK, "w") as f:
-            json.dump({"format": _FORMAT, "cache": _CACHE,
-                       "cids": _CIDS, "fetched": fetched}, f)
+            json.dump({"format": _FORMAT, "cache": cache_out,
+                       "cids": cids_out, "fetched": fetched}, f)
     except OSError:
         pass
 
@@ -585,17 +649,19 @@ def _genera_2face(p: cytools.Polytope) -> list[int]:
 
 # model-read
 @forgive_kwargs
-def ks_stats(h11: int, h21: int | None = None) -> dict:
+def ks_stats(h11: int | None = None, h21: int | None = None) -> dict:
     """
     Polytope counts in the Kreuzer-Skarke database of 4d reflexive polytopes.
 
     Use this to CHECK whether polytopes exist (and how many) at given Hodge
     numbers instead of guessing - the database spans h11 from 1 to 491.
+    Call it with NO arguments for whole-database statistics (the total and
+    the per-h11 census) -- this is local data, never a database query.
 
     Parameters
     ----------
-    h11 : int
-        The Hodge number h11.
+    h11 : int, optional
+        The Hodge number h11. Omit for whole-database statistics.
     h21 : int, optional
         The Hodge number h21. If omitted, counts over all h21 at this h11.
 
@@ -605,8 +671,14 @@ def ks_stats(h11: int, h21: int | None = None) -> dict:
         count and exists - for the exact (h11, h21) when h21 is given. When h21
         is omitted: count (h21-agnostic total at this h11) and h21_values (the
         sorted list of h21 that actually occur at this h11 -- iterate over this
-        to visit every (h11, h21), do NOT assume a range).
+        to visit every (h11, h21), do NOT assume a range). When BOTH are
+        omitted: total, h11_min, h11_max, and count_by_h11 (the full
+        {h11: count} census).
     """
+    if h11 is None:
+        return {"total": sum(_KS_H11.values()),
+                "h11_min": min(_KS_H11), "h11_max": max(_KS_H11),
+                "count_by_h11": {h: _KS_H11[h] for h in sorted(_KS_H11)}}
     if h21 is not None:
         n = _KS_PAIR.get((h11, h21), 0)
         return {"h11": h11, "h21": h21, "count": n, "exists": n > 0}
