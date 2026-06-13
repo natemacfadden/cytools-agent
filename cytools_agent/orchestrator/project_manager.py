@@ -430,7 +430,7 @@ def run_session_voted(user_message, votes=3, agree=2, **kw):
 # ---------------------------------
 def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
                 pm_think=False, plan_think=True, eng_think=False,
-                reset=True, context=""):
+                reset=True, context="", max_seconds=900):
     """Run one PM+engineer session and return the PM's reply. The PM plans,
     then WORKS DOWN THE LIST: each plan step is dispatched to the engineer in
     order (no free re-choosing, which previously dribbled/looped). A step that
@@ -439,12 +439,15 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
 
     reset=False keeps the scratchpad from a previous session in this process
     (chat turns build on stored lists); context carries prior-turn text for
-    reference resolution. Both are managed by OrchestratorChat."""
+    reference resolution. Both are managed by OrchestratorChat. max_seconds
+    is the session's wall-clock budget: a walk that cannot converge ends
+    honestly instead of growing its prompts until the transport times out."""
     def log(tag, body):
         if verbose:
             print(f"\n{tag}\n{body}", flush=True)
 
     stamp = int(time.time())
+    deadline = (time.monotonic() + max_seconds) if max_seconds else None
     reset_evidence()
     reset_session()
     _code.reset_figures()      # so this run archives only the figures it makes
@@ -521,6 +524,12 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
              plan=[_step_text(s) for s in todo])
         gloss = glossary_context(step_str) or ""
         ev = render_evidence()
+        # prompt-size cap: a long session's full evidence render bloats every
+        # later prompt (slower generation each round -- the blow-up that
+        # caused transport timeouts). Past the threshold, show only the
+        # recent tail; the scratchpad summary carries accumulated state.
+        if len(ev) > 9000:
+            ev = render_evidence(last=6)
         # STANDARDIZED dispatch: a fixed form built from the SELF-CONTAINED
         # structured step (DO / PRODUCE). No overall GOAL -- showing the whole
         # question made the engineer overshoot the step (solve everything, then
@@ -534,8 +543,17 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
                   + (f"\n\n{gloss}" if gloss else ""))
         emit("active", who="engineer", phase="working", round=rnd[0])
         n_before = len(evidence)
-        report, n_new, ok = run_engineer(
-            model, evidence, rnd[0], prompt, think=eng_think)
+        # cap each run_python this step issues to the session budget remaining,
+        # so a single long call cannot overrun the deadline and get hard-killed
+        # by the outer process. Cleared in finally so a stale (past) deadline
+        # never leaks to clamp unrelated run_python calls (e.g. the MCP server).
+        _code.set_deadline(deadline)
+        try:
+            report, n_new, ok = run_engineer(
+                model, evidence, rnd[0], prompt, think=eng_think,
+                deadline=deadline)
+        finally:
+            _code.set_deadline(None)
         new_obs = evidence[n_before:]      # this dispatch's observations
         log("[engineer report]", report)
         emit("engineer_report", round=rnd[0], report=report, n_obs=n_new, ok=ok)
@@ -546,6 +564,12 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     # it still fails, STOP -- do not plow ahead to dependent steps.
     completed = True
     for idx, step in enumerate(walk, 1):
+        if deadline is not None and time.monotonic() > deadline:
+            log("[walk stopped: session time budget exhausted]",
+                _step_text(step))
+            emit("time_budget_exhausted", step=_step_text(step))
+            completed = False
+            break
         ok, report, new_obs = dispatch(step, idx)
         why = ""
         if ok:

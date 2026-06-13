@@ -31,6 +31,8 @@
 
 # external imports
 import os
+import signal
+import time
 
 
 # human-read
@@ -166,6 +168,7 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
         with a count).
     """
     ids = _as_id_list(ks_inds)
+    n_requested = len(ids)
     exprs = _as_named_exprs(expressions)
     if not ids:
         raise ValueError("ks_inds is empty -- fetch ids first "
@@ -197,7 +200,22 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
                     and len(val) == len(prev_ids)
                     and all(isinstance(e, (int, float)) for e in val)):
                 by_id[name] = dict(zip(prev_ids, val))
-    for ks in ids:
+    # stop BEFORE the run_python wall-clock alarm (or our own fallback budget)
+    # would kill the whole call: partial aligned columns beat losing all work
+    t0 = time.monotonic()
+    alarm_left = signal.getitimer(signal.ITIMER_REAL)[0]
+    budget = max((alarm_left - 10) if alarm_left
+                 else float(os.environ.get("CYTOOLS_RUN_TIMEOUT", "150")
+                            or 150) - 10, 5)
+    partial_note = None
+    for k, ks in enumerate(ids):
+        if time.monotonic() - t0 > budget:
+            partial_note = (
+                f"TIME BUDGET HIT: computed the first {k} of {len(ids)} ids; "
+                f"all stored lists are PARTIAL (aligned, ok_ids says which). "
+                f"For full coverage pass fewer ids or cheaper expressions.")
+            ids = ids[:k]
+            break
         scope = dict(_code._NS)
         scope.update(by_id)                   # id-keyed view shadows the list
         scope.update(ks_ind=ks, ks=ks)        # forgive the `ks` shorthand
@@ -220,11 +238,13 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
 
     n_err = len(ids) - len(ok_ids)
     out = {
-        "n_requested": len(ids),
+        "n_requested": n_requested,
         "n_ok": len(ok_ids),
         "stored": list(cols) + ["ok_ids"],
         "preview": {name: vals[:_PREVIEW] for name, vals in cols.items()},
     }
+    if partial_note:
+        out["partial"] = partial_note
     # aggregates computed BY THE HARNESS: the reductions a question usually
     # wants (mean/min/max/sum) arrive pre-computed and exactly right, so the
     # model reports them instead of eyeballing arithmetic from a preview

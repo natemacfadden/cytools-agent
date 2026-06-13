@@ -93,6 +93,12 @@ PIPELINE_FORMAT = {
                        "h11_max": {"type": ["integer", "null"]},
                        "h11_min": {"type": ["integer", "null"]}},
                    "required": ["condition", "objective"]},
+        "explain": {"type": ["object", "null"],
+                    "properties": {
+                        "kind": {"enum": ["concept", "capability"]},
+                        "queries": {"type": "array", "maxItems": 5,
+                                    "items": {"type": "string"}}},
+                    "required": ["kind", "queries"]},
         "plot": {"type": ["array", "null"], "maxItems": 4,
                  "items": {"type": "object",
                            "properties": {
@@ -105,11 +111,26 @@ PIPELINE_FORMAT = {
                                "logy": {"type": "boolean"}},
                            "required": ["kind", "x"]}},
     },
-    "required": ["fits", "fetch", "map", "reduce", "plot", "search"],
+    "required": ["fits", "fetch", "map", "reduce", "plot", "search",
+                 "explain"],
 }
 
 _COMPILE_INSTRUCTIONS = (
-    "Decide whether this request fits one of two shapes. SHAPE A (map): "
+    "Decide whether this request fits one of three shapes. SHAPE C (explain) "
+    "FIRST, but ONLY for a pure definition/how-it-works/capability question: "
+    "'what does X mean', 'how does function X work', 'what can you do'. Fill "
+    "`explain` and leave the rest minimal. Set explain.kind='concept' for a "
+    "definition/how-to (explain.queries = the terms to look up, e.g. "
+    "['favorable', 'Mori cone']) or explain.kind='capability' for 'what can "
+    "you do / what tools are there' (queries may be empty). The harness "
+    "answers from the glossary and real docstrings -- do NOT answer from your "
+    "own knowledge. Do NOT use explain if the request asks you to DO "
+    "something with polytopes (fetch, compute, find, plot, sample, count) or "
+    "to find how one quantity RELATES TO / SCALES WITH / VARIES WITH another "
+    "across the database -- those are compute requests (SHAPE A or B) even "
+    "when they name a term you recognize. "
+    "Otherwise it is a COMPUTE request fitting one of two shapes. SHAPE A "
+    "(map): "
     "'fetch polytopes -> compute expression(s) once per polytope -> reduce "
     "-> optional plot'. SHAPE B (search): 'the LARGEST/SMALLEST h11 (or: "
     "does ANY polytope exist) such that some polytope satisfies a "
@@ -143,6 +164,13 @@ _COMPILE_INSTRUCTIONS = (
     "op=ids_where_positive (returns their ids). A stored column's "
     "per-polytope value can be used inside a map expression as "
     "column_name[ks_ind]. "
+    "For a question about the WHOLE database (every h11; total counts; "
+    "'most common h11'; the distribution of polytope counts), set fetch.h11 "
+    "= null: the harness then serves the local KS census -- built-in "
+    "columns h11 and count (polytopes per h11 value) -- with no fetching; "
+    "map/reduce/plot may use h11 and count (argmax of count = the most "
+    "populous h11; sum of count = the database total; a plot of count vs "
+    "h11 usually wants logy=true). "
     "If the request refers to polytopes ALREADY FETCHED in this conversation "
     "(e.g. 'those', 'the same polytopes', 'them') and a stored id list is "
     "shown in the context, set fetch = {\"use_stored\": \"<that variable "
@@ -150,6 +178,25 @@ _COMPILE_INSTRUCTIONS = (
     "name columns STORED from previous turns (shown in the context) -- map "
     "only what is not already stored."
 )
+
+
+# Known field names the model may use as bare variables in search
+# conditions ("cy_volume <= 5"). These are not invented shorthands -- each
+# has one obvious recipe -- so instead of rejecting the spec, the validator
+# auto-inserts the helper (observed: 'minimum CY volume at the tip' compiled
+# to a bare cy_volume and died; the intent was unambiguous).
+_FIELD_BRIDGES = {
+    **{f: f"get_polytope_info(ks_ind)['{f}']"
+       for f in ("h11", "h21", "euler_characteristic", "favorable_N",
+                 "favorable_M", "is_trilayer", "automorphism_order",
+                 "n_points", "n_points_interior_to_facets", "n_vertices",
+                 "n_rigid_divisors", "dim")},
+    **{f: ("get_cy_info(ks_ind, get_heights(ks_ind)['heights'][0], "
+           f"t='tip', cone='toric')['{f}']")
+       for f in ("cy_volume", "curve_volumes", "divisor_volumes")},
+    "ntfe_count": "get_heights(ks_ind)['shape'][0]",
+    "genus_max": "max(get_polytope_info(ks_ind)['genera_2face'])",
+}
 
 
 def _stored_numeric_lists():
@@ -164,10 +211,63 @@ def _stored_numeric_lists():
                     for e in v)]
 
 
+def _valid_census(spec):
+    """Validate a whole-database (fetch.h11=null) spec: it runs against the
+    local KS census of per-h11 counts, never per polytope. Columns h11 and
+    count are built in; map expressions run once per h11 value with h11 and
+    count bound, so an expression over ks_ind cannot be honored."""
+    import builtins
+    spec["fetch"]["_census"] = True
+    cols = ["h11", "count"]
+    for name, expr in (spec.get("map") or {}).items():
+        try:
+            tree = ast.parse(expr, mode="eval")
+        except SyntaxError as e:
+            return f"map expression {name!r} is not a valid expression ({e})"
+        loose = sorted({n.id for n in ast.walk(tree)
+                        if isinstance(n, ast.Name)
+                        and n.id not in set(cols) | set(dir(builtins))})
+        if loose:
+            return (f"fetch.h11=null means the WHOLE database, served from "
+                    f"the KS census of per-h11 counts -- map expressions may "
+                    f"only use h11 and count, but {name!r} uses "
+                    f"{', '.join(loose)}. Per-polytope computation over the "
+                    f"whole database is infeasible: either rephrase over "
+                    f"h11/count, or pass fetch.h11 as a list of specific "
+                    f"values")
+        cols.append(name)
+    for r in spec.get("reduce") or []:
+        if r["of"] not in cols:
+            return (f"reduce {r['name']!r} references {r['of']!r}; census "
+                    f"columns are {cols}")
+    plots = spec.get("plot")
+    if isinstance(plots, dict):
+        plots = spec["plot"] = [plots]
+    for p in plots or []:
+        if p["kind"] == "histogram":
+            p["y"] = None
+        if p["x"] not in cols or (p.get("y") and p["y"] not in cols):
+            return (f"census plot columns must be among {cols} "
+                    f"(got x={p['x']!r}, y={p.get('y')!r})")
+        if p.get("color") and p["color"] not in cols:
+            p["color"] = None
+        if p["kind"] != "histogram" and not p.get("y"):
+            return f"a {p['kind']} plot needs y"
+    return ""
+
+
 def _valid(spec):
     """Validate beyond what the schema can express; return a reason or ''."""
     if not spec.get("fits"):
         return "model judged the request does not fit the pipeline"
+    if spec.get("explain"):
+        e = spec["explain"]
+        if e.get("kind") not in ("concept", "capability"):
+            return f"explain.kind must be concept/capability, got {e.get('kind')!r}"
+        if e["kind"] == "concept" and not e.get("queries"):
+            return ("explain.kind='concept' needs explain.queries -- the "
+                    "terms/topics to look up (e.g. ['favorable'])")
+        return ""
     if spec.get("search"):
         s = spec["search"]
         for name, expr in (s.get("map") or {}).items():
@@ -189,6 +289,14 @@ def _valid(spec):
                  | set(dir(builtins)))
         loose = sorted({n.id for n in ast.walk(tree)
                         if isinstance(n, ast.Name) and n.id not in known})
+        # auto-bridge: a loose name that is a known field gets its helper
+        # inserted instead of a rejection -- the intent is unambiguous
+        bridged = [n for n in loose if n in _FIELD_BRIDGES]
+        if bridged:
+            s["map"] = dict(s.get("map") or {})
+            for n in bridged:
+                s["map"][n] = _FIELD_BRIDGES[n]
+            loose = [n for n in loose if n not in bridged]
         if loose:
             return ("search condition references undefined name(s) "
                     + ", ".join(loose) + " -- DEFINE each in search.map as "
@@ -196,6 +304,9 @@ def _valid(spec):
                     "e.g. search.map = {\"" + loose[0] + "\": \"<expression "
                     "over ks_ind>\"}")
         return ""        # search mode: fetch/map/reduce/plot are ignored
+    f0 = spec.get("fetch") or {}
+    if f0.get("h11") is None and not f0.get("use_stored"):
+        return _valid_census(spec)
     cols = list(spec.get("map") or {}) + _stored_numeric_lists()
     for name, expr in (spec.get("map") or {}).items():
         try:
@@ -241,10 +352,19 @@ def _valid(spec):
     h11s = h11s if isinstance(h11s, list) else [h11s]
     if not h11s or not all(isinstance(h, int) and 1 <= h <= 491 for h in h11s):
         return f"fetch h11 {f.get('h11')!r} invalid"
-    if not (f.get("limit") and 1 <= f["limit"]
-            and f["limit"] * len(h11s) <= 2000):
-        return (f"fetch limit {f.get('limit')!r} x {len(h11s)} h11 values "
-                f"out of range")
+    # forgive the two observed limit mis-fills instead of rejecting:
+    # None ("grab me a polytope" -- no count stated) defaults small, and an
+    # over-cap sweep is clamped to the politeness cap, with the partiality
+    # surfaced in the answer (run_pipeline reads _limit_note)
+    if not f.get("limit"):
+        f["limit"] = 10
+        f["_limit_note"] = "no count was stated; using the first 10"
+    cap = 2000
+    if f["limit"] * len(h11s) > cap:
+        f["limit"] = max(1, cap // len(h11s))
+        f["_limit_note"] = (f"requested more than the {cap}-polytope "
+                            f"politeness cap; clamped to the first "
+                            f"{f['limit']} per h11 -- results are PARTIAL")
     return ""
 
 
@@ -257,6 +377,68 @@ _H11_RANGE_RE = re.compile(
 
 
 _PLOT_WORDS_RE = re.compile(r"\b(plot|scatter|histogram|chart|graph)\b", re.I)
+
+# "the first polytope (at h11=X)" is ONE polytope; when no count is stated the
+# limit defaults to 10 and the answer becomes a 10-item list instead of the
+# single value asked for. A SINGULAR reference (no count, "polytope" not
+# "polytopes") should fetch exactly one.
+_SINGULAR_POLY_RE = re.compile(
+    r"\bfirst\b[^.?]*\bpolytope\b|\bthe polytope\b|\bthis polytope\b", re.I)
+_PLURAL_COUNT_RE = re.compile(r"\bfirst\s+\d+\b|\b\d+\s+polytopes\b|"
+                              r"\bpolytopes\b", re.I)
+
+
+# words that mean the question wants a COMPUTED result (a number, extremum,
+# count, list, or figure) -- an explain spec on any of these is the model
+# taking the easy out (explaining a term instead of doing the work)
+# Signals that a request wants WORK done, not a definition -- used only to
+# reject an `explain` spec (the model naming a term it recognizes and dodging
+# the actual task). Three families:
+#   result asks   -- an extremum/count/list/figure
+#   do-tasks      -- imperatives to fetch/compute something concrete
+#   relationships -- "how does X relate to/scale with/vary with Y" across the
+#                    database (empirical; an evidence answer beats a definition)
+# Deliberately excludes bare "compute"/"calculate"/"make"/"mean" (a how-to
+# "how do I compute X" and "what does it MEAN" are legit explain questions).
+_COMPUTE_INTENT_RE = re.compile(
+    r"\b(largest|smallest|maximum|minimum|\bmax\b|\bmin\b|how many|number of|"
+    r"\bcount\b|average|median|distribution|plot|scatter|histogram|chart|"
+    r"graph|list (all|the)|which polytope"
+    r"|grab|fetch|give me|find me|get me|make me|generate"
+    r"|relate|related|relationship|correlat\w*|scales? (with|as)|"
+    r"scaling (with|as)|var(y|ies) (with|across)|depends? on)\b", re.I)
+
+
+# A request that names a CONCRETE polytope to compute on -- a Hodge number, an
+# id, or "the first polytope" -- is a computation/lookup, never a definition,
+# even when phrased "what is the <quantity> of ...". Observed regression:
+# "what is the CY volume of the first h11=3,h21=43 polytope" and "is the first
+# polytope at h11=3 a trilayer polytope" both dumped an explain answer.
+_CONCRETE_POLY_RE = re.compile(
+    r"h\s*1?1\s*=|h\s*2?1\s*=|\bind[-\s]?\d|first\b[^.?]*\bpolytope|"
+    r"\bthe polytope\b|\bthis polytope\b|polytope at h", re.I)
+
+
+def _explain_issue(spec, asked):
+    """'' or a recompile instruction: explain (concept OR capability) is only
+    right for an ABSTRACT definition/how-to/'what can you do' question. If the
+    request asks for a computed result (extremum/count/list/figure) OR names a
+    concrete polytope to compute on, the model took the easy out -- steer it
+    back to SHAPE A/B. Genuine definition questions ('what is favorability',
+    'how does make_star work', 'what can you do') match neither pattern."""
+    if not spec.get("explain"):
+        return ""
+    if _COMPUTE_INTENT_RE.search(asked):
+        return ("this asks for a COMPUTED result (a number, extremum, count, "
+                "list, or plot), not a definition -- do NOT use explain. Fill "
+                "SHAPE A (fetch + map + reduce) for a quantity, or SHAPE B "
+                "(search) for the largest/smallest h11 satisfying a condition")
+    if _CONCRETE_POLY_RE.search(asked):
+        return ("this names a SPECIFIC polytope (by Hodge number / id / 'the "
+                "first polytope') and asks for one of its properties -- that "
+                "is a computation, NOT a definition. Do NOT use explain; fill "
+                "SHAPE A: fetch that polytope and compute the asked quantity.")
+    return ""
 
 
 def _plot_issue(spec, direct):
@@ -281,6 +463,8 @@ def _range_issue(spec, direct):
     f = spec.get("fetch") or {}
     if f.get("use_stored"):
         return ""
+    if f.get("_census"):
+        return ""        # the census spans every h11 by construction
     h11 = f.get("h11")
     if _H11_RANGE_RE.search(direct) and not (isinstance(h11, list)
                                              and len(h11) > 1):
@@ -424,13 +608,126 @@ def _audit_sample(ids, evidence, k=3):
             f"Refusing to answer from this data.")
 
 
+def _run_explain(spec, evidence):
+    """Answer a conceptual / documentation / capability question from the
+    reference database (glossary + real docstrings) -- NOT from model
+    knowledge. The composed text is harness-assembled from source-grounded
+    lookups, each of which is a ledgered tool call, so the answer is as
+    evidence-backed as any computation."""
+    from cytools_agent.tools import reference, ledger
+    e = spec["explain"]
+    if e["kind"] == "capability":
+        from cytools_agent.tools import MODEL_TOOLS
+        from cytools_agent.tools.glossary import _SECTIONS
+        import inspect
+        tools = []
+        for t in MODEL_TOOLS:
+            fn = getattr(t, "__wrapped__", t)
+            summary = (inspect.getdoc(fn) or "").strip().split("\n\n")[0]
+            summary = " ".join(summary.split())[:140]
+            tools.append(f"- {fn.__name__}: {summary}")
+        # the topic index, so a capability answer says what it KNOWS, not just
+        # which functions exist (observed: a bare tool list under-answered
+        # "how high can I compute NTFEs" / "what can you do")
+        topics = "\n".join(f"- {title}: {', '.join(terms)}"
+                           for title, _b, terms in _SECTIONS)
+        _obs(evidence, "pipeline explain (capability)",
+             "MODEL_TOOLS + reference table of contents",
+             f"{len(tools)} tools, {len(_SECTIONS)} topic sections")
+        return ("This harness computes Calabi-Yau / toric-geometry quantities "
+                "over the Kreuzer-Skarke database with CYTools. Available "
+                "tools:\n" + "\n".join(tools)
+                + "\n\nTopics it has source-derived recipes for (ask for any "
+                "by name, or call reference(<topic>) to drill in):\n" + topics)
+    # concept / how-to: resolve each query against the reference database
+    blocks, any_hit = [], False
+    for q in e.get("queries", [])[:5]:
+        r = reference(q)
+        row = ledger.last_id()
+        _obs(evidence, f"pipeline explain lookup {q!r}",
+             f"reference({q!r})", r)
+        lines = []
+        for g in r.get("glossary", []):
+            lines.append(f"  - {g['term']}: {g['definition']} "
+                         f"Recipe: {g['recipe']}")
+            any_hit = True
+        for a in r.get("api", [])[:3]:
+            doc = (" -- " + a["doc"]) if a.get("doc") else ""
+            lines.append(f"  - {a['name']}{a['signature']}{doc}")
+            any_hit = True
+        if lines:
+            blocks.append(f"{q} [ref, ledger row {row}]:\n" + "\n".join(lines))
+        else:
+            blocks.append(f"{q}: no reference entry found.")
+    if not any_hit:
+        # nothing resolved -- the walk (which can read docstrings live) may do
+        # better than an empty reference answer
+        raise RuntimeError("explain resolved no glossary/API entries")
+    return ("From the CYTools reference (glossary definitions + recipes and "
+            "real docstrings; not model knowledge):\n\n" + "\n\n".join(blocks))
+
+
+def _run_census(spec, evidence):
+    """Execute a whole-database (fetch.h11=null) spec against the local KS
+    census: per-h11 polytope counts, no fetching, no database queries. The
+    iteration domain is h11 values, not polytopes -- argmax/argmin return
+    the h11 value at the extreme."""
+    import builtins
+    from cytools_agent.tools import code as _code
+    from cytools_agent.tools import ks_stats, ledger
+    stats = ks_stats()
+    census_row = ledger.last_id()
+    by = stats["count_by_h11"]
+    h11_vals = sorted(by)
+    cols = {"h11": h11_vals, "count": [by[h] for h in h11_vals]}
+    _obs(evidence, "pipeline census",
+         "ks_stats()   # whole-database per-h11 counts (local census)",
+         {"total": stats["total"], "h11_min": stats["h11_min"],
+          "h11_max": stats["h11_max"]})
+    scope_base = {b: getattr(builtins, b) for b in dir(builtins)}
+    for name, expr in (spec.get("map") or {}).items():
+        if name in cols:                # identity refills of h11/count
+            continue
+        c = compile(expr, f"<census:{name}>", "eval")
+        cols[name] = [eval(c, dict(scope_base, h11=hv, count=cv))
+                      for hv, cv in zip(cols["h11"], cols["count"])]
+    _code._NS.update(cols)              # so make_plot can read them by name
+
+    parts = [f"Across the WHOLE KS database: {stats['total']} polytopes, "
+             f"h11 from {stats['h11_min']} to {stats['h11_max']} "
+             f"({len(h11_vals)} distinct h11 values; local census, no "
+             f"database queries) [ledger row {census_row}]."]
+    for red in spec.get("reduce") or []:
+        val = _reduce(red["op"], cols[red["of"]], h11_vals)
+        _obs(evidence, f"pipeline reduce {red['name']}",
+             f"{red['op']}({red['of']})", val)
+        extreme = (" (this is the h11 value at the extreme)"
+                   if red["op"] in ("argmax", "argmin") else "")
+        parts.append(f"{red['name']} ({red['op']} of {red['of']}): "
+                     f"{val}{extreme} [ledger row {census_row}].")
+    for p in spec.get("plot") or []:
+        note = make_plot(kind=p["kind"], x=p["x"], y=p.get("y"),
+                         color=p.get("color"), logx=bool(p.get("logx")),
+                         logy=bool(p.get("logy")),
+                         xlabel=p["x"], ylabel=p.get("y") or "")
+        _obs(evidence, "pipeline plot",
+             f"make_plot(kind={p['kind']!r}, x={p['x']!r}, "
+             f"y={p.get('y')!r})", note)
+        parts.append(note.replace("figure built.", "Figure saved:").strip())
+    return " ".join(parts)
+
+
 def run_pipeline(spec, evidence):
     """Execute a VALIDATED spec; return the composed answer string.
     Raises on any stage failure (caller falls back to the free-form walk)."""
     from cytools_agent.tools import code as _code
+    if spec.get("explain"):
+        return _run_explain(spec, evidence)
     if spec.get("search"):
         return _run_search(spec, evidence)
     f = spec["fetch"]
+    if f.get("_census"):
+        return _run_census(spec, evidence)
     if f.get("use_stored"):             # chat continuity: prior turn's ids
         ids = list(_code._NS[f["use_stored"]])
         h11s = sorted({int(i.split("_")[0].split("-")[1]) for i in ids})
@@ -471,6 +768,8 @@ def run_pipeline(spec, evidence):
              f"{r['n_requested']} polytopes at {h11_desc}"
              + (f", h21={f['h21']}" if f.get("h21") is not None else "")
              + (" (favorable)" if f.get("favorable") else "") + "."]
+    if f.get("_limit_note"):
+        parts.append(f"Note: {f['_limit_note']}.")
     if not spec["reduce"]:
         # no aggregation asked: the per-item values ARE the deliverable --
         # show them (briefly) instead of only naming the columns
@@ -498,6 +797,26 @@ def run_pipeline(spec, evidence):
     return " ".join(parts)
 
 
+def _spec_issue(spec, asked, direct):
+    """All post-schema validation for a compiled spec, in ONE place so the
+    main compile loop and the runtime-recompile path cannot drift (they did:
+    the recompile path omitted the explain guard, letting an explain spec slip
+    through after a compute spec hit a runtime error). Returns a reason or ''.
+    `asked` is the raw question (the guards key on words translate may drop)."""
+    why = _valid(spec)
+    if why:
+        return why
+    if spec.get("explain"):
+        # the only guard that applies to explain: did it dodge real work?
+        return _explain_issue(spec, asked)
+    # the range / plot / quantity guards are about COMPUTE specs
+    why = _range_issue(spec, asked) or _plot_issue(spec, asked)
+    if why:
+        return why
+    why = _spec_quantity_issues(spec, direct)
+    return ("quantity lint: " + why) if why else ""
+
+
 def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
     """The fast path: compile, validate (with ONE lint-guided recompile),
     execute. Returns the answer string, or None to fall back to the
@@ -514,15 +833,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
         except Exception as e:
             emit("pipeline", fits=False, reason=f"compile error: {e}")
             return None
-        why = _valid(spec)
-        if not why:
-            why = _range_issue(spec, asked)
-        if not why:
-            why = _plot_issue(spec, asked)
-        if not why:
-            why = _spec_quantity_issues(spec, direct)
-            if why:
-                why = "quantity lint: " + why
+        why = _spec_issue(spec, asked, direct)
         if not why:
             break
         feedback = ("\n\n(Your previous pipeline had this problem -- fix "
@@ -531,6 +842,15 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
         log("[pipeline: falling back]", why)
         emit("pipeline", fits=False, reason=why, spec=spec)
         return None
+    # singular "the first polytope" with no stated count: the limit defaulted
+    # to 10 and the answer would be a list; fetch exactly one instead
+    fc = spec.get("fetch") or {}
+    if (str(fc.get("_limit_note", "")).startswith("no count")
+            and _SINGULAR_POLY_RE.search(asked)
+            and not _PLURAL_COUNT_RE.search(asked)):
+        fc["limit"] = 1
+        fc.pop("_limit_note", None)
+        log("[pipeline]", "singular reference -> limit=1")
     emit("pipeline", fits=True, spec=spec)
     log("[pipeline spec]", str(spec))
     try:
@@ -557,9 +877,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
                               f"{e}. Fix exactly that -- use the glossary "
                               "recipes verbatim.)"),
                 cheatsheet, context=context)
-            if not (_valid(spec2) or _range_issue(spec2, asked)
-                    or _plot_issue(spec2, asked)
-                    or _spec_quantity_issues(spec2, direct)):
+            if not _spec_issue(spec2, asked, direct):
                 emit("pipeline", fits=True, spec=spec2, retry=True)
                 return run_pipeline(spec2, evidence)
         except Exception as e2:

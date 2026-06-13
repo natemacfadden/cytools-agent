@@ -96,6 +96,32 @@ _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
 # recoverable error. Main-thread only (signals); other threads are uncapped.
 _RUN_TIMEOUT = float(os.environ.get("CYTOOLS_RUN_TIMEOUT", "150"))
 
+# absolute monotonic deadline for the WHOLE session, or None. When set, each
+# run_python call is capped to the time remaining, so the session budget is a
+# (near-)hard stop: a single long call can no longer overrun it and get
+# hard-killed by the outer process (observed: a walk step starting just under
+# a 300s budget ran a full 150s and blew past the 420s subprocess kill).
+_DEADLINE = None
+
+
+def set_deadline(deadline):
+    """Set (or clear, with None) the session wall-clock deadline that caps
+    each run_python call. Caller owns lifecycle (set at session start, clear
+    in a finally) so it never leaks across sessions in a shared process."""
+    global _DEADLINE
+    _DEADLINE = deadline
+
+
+def _effective_timeout():
+    """The per-call wall cap: the run_python timeout, further shortened to the
+    session budget remaining (floored at 1s so a call near the deadline stops
+    almost immediately rather than running uncapped)."""
+    eff = _RUN_TIMEOUT if _RUN_TIMEOUT > 0 else None
+    if _DEADLINE is not None:
+        remaining = max(1.0, _DEADLINE - time.monotonic())
+        eff = remaining if eff is None else min(eff, remaining)
+    return eff
+
 
 class _RunPythonTimeout(Exception):
     pass
@@ -228,12 +254,13 @@ def run_python(code: str) -> str:
     import signal
     import threading
 
-    timed = (_RUN_TIMEOUT > 0
+    eff_timeout = _effective_timeout()
+    timed = (eff_timeout is not None and eff_timeout > 0
              and threading.current_thread() is threading.main_thread())
 
     def _timeout(*_):
         raise _RunPythonTimeout(
-            f"run_python call exceeded {_RUN_TIMEOUT:.0f}s of wall clock and "
+            f"run_python call exceeded {eff_timeout:.0f}s of wall clock and "
             f"was stopped. Compute LESS per call: only the field you need "
             f"(e.g. len(f.points()) directly, NOT get_polytope_info's full "
             f"record), on a SMALLER sample, saving partial results to the "
@@ -243,7 +270,7 @@ def run_python(code: str) -> str:
     if timed:
         _t0 = time.monotonic()
         prev = signal.signal(signal.SIGALRM, _timeout)
-        prev_t = signal.setitimer(signal.ITIMER_REAL, _RUN_TIMEOUT)
+        prev_t = signal.setitimer(signal.ITIMER_REAL, eff_timeout)
     try:
         tree = ast.parse(code, "<run_python>")
         last = tree.body[-1] if tree.body else None
