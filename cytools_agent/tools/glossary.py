@@ -147,6 +147,16 @@ _GLOSSARY = {
         ["kahler moduli", "dimension of kahler moduli space",
          "size of kahler moduli space", "number of kahler parameters",
          "how big is kahler moduli space", "kahler moduli dimension"]),
+    "polytope count": (
+        "How MANY polytopes the Kreuzer-Skarke database holds at given Hodge "
+        "numbers -- a local lookup, NOT a fetch. Pass the h11 (and optionally "
+        "h21); omit both for the whole-database total.",
+        "ks_stats(get_polytope_info(ks_ind)['h11'], "
+        "get_polytope_info(ks_ind)['h21'])['count']   "
+        "# or ks_stats(<h11>, <h21>)['count'] with the asked numbers",
+        ["count of polytopes", "how many 4d reflexive polytopes",
+         "polytopes with h11 and h21", "how many polytopes are there",
+         "number of polytopes at given hodge numbers"]),
     "toric curve volume": (
         "Volume of an effective (Mori-cone) curve at a Kahler point t: "
         "(Mori ray) . t. get_cy_info returns the list curve_volumes; reduce it "
@@ -288,6 +298,15 @@ _GLOSSARY = {
         "A facet is a codimension-1 face; for a 4d polytope, the 3-faces.",
         "get_polytope_info(ks_ind)['facedim_to_nfaces'][3]   # number of facets",
         ["facets", "3-face", "3-faces", "codimension-1 face"]),
+    "face count": (
+        "How MANY faces of a given dimension the polytope has. "
+        "facedim_to_nfaces maps dimension -> count: 0=vertices, 1=edges, "
+        "2=2-faces, 3=facets, 4=the polytope itself.",
+        "get_polytope_info(ks_ind)['facedim_to_nfaces'][2]   "
+        "# 2-faces; use [3] for facets, [1] for edges, [0] for vertices",
+        ["number of 2-faces", "how many 2-faces", "number of faces",
+         "number of facets", "how many facets", "how many 3-faces",
+         "number of edges", "how many edges", "face count"]),
     "automorphisms": (
         "The SL+/-(d,Z) lattice automorphisms (4x4 matrices) that fix the "
         "polytope; the group's order is automorphism_order.",
@@ -561,11 +580,12 @@ _SECTIONS = [
      ["lattice points", "2-face lattice points",
       "points not interior to facets", "points interior to facets",
       "dual point count", "lattice volume", "polytope dimension", "facet",
-      "dual polytope", "automorphisms", "normal form", "content id"]),
+      "face count", "dual polytope", "automorphisms", "normal form",
+      "content id"]),
     ("Hodge numbers, topology & physics",
      "topological invariants of the CY and the physics quantities from them",
      ["hodge numbers", "euler characteristic", "2-face genus", "favorable",
-      "trilayer", "d3 tadpole charge"]),
+      "trilayer", "d3 tadpole charge", "polytope count"]),
     ("Triangulations & sampling",
      "FR(S)Ts, NTFEs, vexes, and how to enumerate or fairly sample them",
      ["fine", "regular", "star", "frst", "ntfe", "vex", "distinct calabi-yaus",
@@ -581,8 +601,8 @@ _SECTIONS = [
       "stretched cone tip", "toric curve volume", "divisor volume"]),
     ("Calabi-Yau invariants",
      "numbers computed from a chosen triangulation's Calabi-Yau",
-     ["cy volume", "triple intersection numbers", "second chern class",
-      "gopakumar-vafa invariants"]),
+     ["cy volume", "triple intersection numbers",
+      "second chern class", "gopakumar-vafa invariants"]),
 ]
 
 _TERM_SECTION = {t: title for title, _b, terms in _SECTIONS for t in terms}
@@ -797,7 +817,7 @@ def expected_markers(message: str) -> set:
 
 
 # human-read
-def glossary_context(message: str, max_terms: int = 4) -> str:
+def glossary_context(message: str, max_terms: int = 3) -> str:
     """Scan a message for glossary terms (as whole-token phrases) and return
     their definitions + recipes as a context block, or "" if none. The harness
     appends this to a user message so the model gets the translation without
