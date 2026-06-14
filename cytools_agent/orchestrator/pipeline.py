@@ -384,8 +384,12 @@ _PLOT_WORDS_RE = re.compile(r"\b(plot|scatter|histogram|chart|graph)\b", re.I)
 # "polytopes") should fetch exactly one.
 _SINGULAR_POLY_RE = re.compile(
     r"\bfirst\b[^.?]*\bpolytope\b|\bthe polytope\b|\bthis polytope\b", re.I)
-_PLURAL_COUNT_RE = re.compile(r"\bfirst\s+\d+\b|\b\d+\s+polytopes\b|"
-                              r"\bpolytopes\b", re.I)
+# a PLURAL request is one that names a COUNT (>1) of polytopes -- "first 30",
+# "50 polytopes". A bare "polytopes" must NOT count: it appears generically in
+# the PM's translation ("fetch polytopes at h11=4 ...") and was silently
+# blocking the singular->limit-1 fix whenever the translation pluralized,
+# making single-polytope count questions flaky ([2],[86],[100],[17]).
+_PLURAL_COUNT_RE = re.compile(r"\bfirst\s+\d+\b|\b\d+\s+polytopes\b", re.I)
 
 
 # words that mean the question wants a COMPUTED result (a number, extremum,
@@ -797,6 +801,20 @@ def run_pipeline(spec, evidence):
     return " ".join(parts)
 
 
+def _apply_singular_limit(spec, asked, log):
+    """A singular reference ('the first polytope') with no stated count: the
+    limit defaulted to 10 and the answer would be a list -- fetch exactly one.
+    Applied to BOTH the first spec and any runtime-recompiled spec (the latter
+    was previously missed, leaving singular questions on limit=10)."""
+    fc = spec.get("fetch") or {}
+    if (str(fc.get("_limit_note", "")).startswith("no count")
+            and _SINGULAR_POLY_RE.search(asked)
+            and not _PLURAL_COUNT_RE.search(asked)):
+        fc["limit"] = 1
+        fc.pop("_limit_note", None)
+        log("[pipeline]", "singular reference -> limit=1")
+
+
 def _spec_issue(spec, asked, direct):
     """All post-schema validation for a compiled spec, in ONE place so the
     main compile loop and the runtime-recompile path cannot drift (they did:
@@ -842,15 +860,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
         log("[pipeline: falling back]", why)
         emit("pipeline", fits=False, reason=why, spec=spec)
         return None
-    # singular "the first polytope" with no stated count: the limit defaulted
-    # to 10 and the answer would be a list; fetch exactly one instead
-    fc = spec.get("fetch") or {}
-    if (str(fc.get("_limit_note", "")).startswith("no count")
-            and _SINGULAR_POLY_RE.search(asked)
-            and not _PLURAL_COUNT_RE.search(asked)):
-        fc["limit"] = 1
-        fc.pop("_limit_note", None)
-        log("[pipeline]", "singular reference -> limit=1")
+    _apply_singular_limit(spec, asked, log)
     emit("pipeline", fits=True, spec=spec)
     log("[pipeline spec]", str(spec))
     try:
@@ -878,6 +888,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
                               "recipes verbatim.)"),
                 cheatsheet, context=context)
             if not _spec_issue(spec2, asked, direct):
+                _apply_singular_limit(spec2, asked, log)   # same as first spec
                 emit("pipeline", fits=True, spec=spec2, retry=True)
                 return run_pipeline(spec2, evidence)
         except Exception as e2:
