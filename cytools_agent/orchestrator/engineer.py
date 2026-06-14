@@ -137,14 +137,19 @@ if MAP_TOOLS_ENABLED:
 # the constrained fields (a pressure valve against railroading).
 # Ollama-transport-specific BY DESIGN: a capable-model transport (e.g.
 # Anthropic tool use) keeps the tool-call path; the act protocol is the same.
+# maxLength is ENFORCED by Ollama's format grammar (verified), so it bounds the
+# output at the decoder -- not a hint. This caps the runaway rambles: a confused
+# engineer was emitting ~6k-char acts (no runnable code) that took ~80s each AND
+# bloated the next prompt to 24k chars. Steps here are meant to be SMALL (compute
+# less per call), so these caps fit legit acts while killing the ramble.
 ACT_FORMAT = {
     "type": "object",
     "properties": {
-        "reflection": {"type": "string"},
-        "intent": {"type": "string", "minLength": 3},
-        "code": {"type": "string"},
+        "reflection": {"type": "string", "maxLength": 500},
+        "intent": {"type": "string", "minLength": 3, "maxLength": 400},
+        "code": {"type": "string", "maxLength": 1500},
         "done": {"type": "boolean"},
-        "answer": {"type": "string"},
+        "answer": {"type": "string", "maxLength": 800},
     },
     "required": ["intent", "code", "done"],
 }
@@ -422,7 +427,11 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14,
                 consumed -= 1    # error + pointed feedback: recovery is free
             add({"intent": intent or "(none)", "ran_code": code,
                  "received_output": out, "interpretation": "",
-                 "valid_python": valid_python(code)})
+                 "valid_python": valid_python(code),
+                 # full reprs of scratchpad values (harness-only, not shown to
+                 # the model): so an irreproducible reduction can be debugged
+                 # from the intermediate values, not just the printed scalar
+                 "scratchpad_repr": _code.namespace_detail()})
             if done and answer and grounded(answer, evidence[n0:]):
                 interpret(answer)
                 return finish(answer, True)

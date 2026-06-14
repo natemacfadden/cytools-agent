@@ -49,10 +49,11 @@ _PLAN_FORMAT = {
                   "required": ["do", "produce"]}}},
     "required": ["todo"],
 }
-from cytools_agent.orchestrator.evidence import (backing, emit,
+from cytools_agent.orchestrator.evidence import (backing, emit, grounded,
                                                  render_evidence,
                                                  reset_evidence, reset_session,
-                                                 save_log, write_evidence)
+                                                 save_log, session_provenance,
+                                                 write_evidence)
 from cytools_agent.orchestrator.pipeline import PIPELINE, try_pipeline
 
 # model-read
@@ -456,6 +457,9 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
                                  # don't leak in from a prior session; chat
                                  # turns pass reset=False to BUILD on them
     emit("question", text=user_message)
+    # versions + cache paths that determine what a computation returns, so an
+    # irreproducible result (e.g. [104] trilayer count) is attributable
+    emit("provenance", **session_provenance())
     # record this process's sampled prompt examples, so any session's exact
     # prompts are reconstructible (CYTOOLS_EXAMPLE_SEED reproduces a draw)
     from cytools_agent.tools._examples import EXAMPLE_CHOICES
@@ -637,6 +641,37 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
     # tool-call rows (harness-recorded, model could not author) vs free-form
     # printed output (authentic but model-shaped)
     label, rows_used = backing(msg, evidence)
+    # backing() credits a number to a tool_call row if it appears ANYWHERE in
+    # that row -- which over-credits a ubiquitous digit (observed [104]: a
+    # fabricated "0" matched a row's '"n_points_interior_to_facets": 0' and was
+    # stamped row-backed). An UNFINISHED walk is exactly where the composer
+    # invents a number, so there also require the strict grounded() check (the
+    # answer's result must appear in a real COMPUTED output); if it fails, drop
+    # to unbacked so the redraft/refuse path below runs. Gated on `completed`
+    # so a normal, finished answer is never second-guessed.
+    if (not completed and label in ("row-backed", "stdout-backed")
+            and not grounded(msg, evidence)):
+        log("[incomplete run + ungrounded number -- treating as unbacked]", "")
+        label, rows_used = "unbacked", []
+    # truth-ledger enforcement: a number found in NO captured output must not
+    # be surfaced as the result (observed: a hallucinated count emitted with
+    # only a "do not trust" note). Redraft once from the evidence using ONLY
+    # computed numbers; if it is STILL unbacked the value was never computed,
+    # and the honest answer says so rather than stating a fabricated number.
+    if label == "unbacked":
+        log("[unbacked numbers -- redrafting from evidence]", "")
+        emit("verify", complete=False, missing="unbacked numbers", redraft=True)
+        redraft = pm.summarize(
+            direct, render_evidence(), completed,
+            missing="every number in your draft appears in NO computed output. "
+                    "Use ONLY numbers that appear in the evidence outputs; if "
+                    "the value was never computed, say you could not compute it "
+                    "rather than stating a number from memory.")
+        l2, r2 = backing(redraft, evidence)
+        if l2 != "unbacked":            # recovered a grounded value
+            msg, label, rows_used = redraft, l2, r2
+        else:                           # still ungrounded -> honest version
+            msg = redraft
     emit("backing", label=label, rows=rows_used)
     if label == "row-backed":
         msg += (f"\n\n(evidence: every number is backed by harness-recorded "

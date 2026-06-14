@@ -60,6 +60,52 @@ def emit(event, path=SESSION_PATH, **fields):
         f.write(json.dumps({"event": event, "t": time.time(), **fields}) + "\n")
 
 
+def session_provenance():
+    """Versions and cache paths that determine what a computation returns --
+    recorded once per session so an irreproducible result is attributable.
+    is_trilayer and friends are basis-sensitive, so a flint/cytools bump can
+    silently change an answer; without this we can only guess which changed."""
+    import sys
+    prov = {"python": sys.version.split()[0]}
+
+    def _ver(mod):
+        try:
+            m = __import__(mod)
+            return getattr(m, "__version__", None) or getattr(m, "version", None)
+        except Exception:
+            return None
+    for mod in ("numpy", "flint", "cytools", "scipy"):
+        prov[mod] = _ver(mod)
+
+    # which cytools actually imported -- site-packages vs an editable tree
+    # are different code; is_trilayer's result depends on it, so record the
+    # path, then the git SHA if that path happens to be a checkout
+    try:
+        import subprocess
+        import cytools as _ct
+        prov["cytools_path"] = _ct.__file__
+        root = os.path.dirname(os.path.dirname(os.path.dirname(_ct.__file__)))
+        sha = subprocess.run(["git", "-C", root, "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+        dirty = subprocess.run(["git", "-C", root, "status", "--porcelain"],
+                               capture_output=True, text=True, timeout=5)
+        prov["cytools_git"] = (sha.stdout.strip() or None) if sha.returncode == 0 \
+            else None
+        prov["cytools_dirty"] = bool(dirty.stdout.strip()) \
+            if dirty.returncode == 0 else None
+    except Exception:
+        prov["cytools_git"] = None
+
+    # which KS data the polytopes are reconstructed from -- the actual input
+    try:
+        from cytools_agent.tools import polytope as _p
+        prov["ks_base"] = _p._BASE or None
+        prov["ks_overlay"] = _p._DISK or None
+    except Exception:
+        pass
+    return prov
+
+
 def reset_evidence(path=EVIDENCE_PATH):
     """Start a fresh, empty evidence file for a new session."""
     os.makedirs(os.path.dirname(path), exist_ok=True)

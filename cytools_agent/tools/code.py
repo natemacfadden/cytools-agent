@@ -143,6 +143,47 @@ def _assigned_names(tree):
 
 
 # human-read
+def _computed_scalars(tree):
+    """{name: value} for top-level names assigned from a COMPUTATION whose
+    current value is a scalar -- so a result the model computed but forgot to
+    print can be surfaced into the captured output (and thus grounded). A name
+    assigned a bare literal (answer = 5, xs = [1,2]) is EXCLUDED: surfacing
+    that would let a typed-in (fabricated) number pass the grounding check, the
+    very thing the no-output guard exists to stop. Only genuinely-computed
+    scalars -- the value came out of executing the model's code -- qualify."""
+    def computed_rhs(val):
+        if isinstance(val, (ast.Constant, ast.List, ast.Tuple, ast.Set,
+                            ast.Dict, ast.JoinedStr)):
+            return False                       # a typed literal, not a result
+        if isinstance(val, ast.UnaryOp) and isinstance(val.operand,
+                                                       ast.Constant):
+            return False                       # -5, +0: still a literal
+        return True
+    targets = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and computed_rhs(node.value):
+            targets += [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AugAssign) and isinstance(node.target,
+                                                            ast.Name):
+            targets.append(node.target.id)    # x += f(): a computation
+    out = {}
+    for nm in targets:
+        if nm not in _NS:
+            continue
+        v = _NS[nm]
+        if isinstance(v, np.generic):          # numpy scalar -> python scalar
+            try:
+                v = v.item()
+            except Exception:
+                pass
+        if isinstance(v, (bool, int, float, complex)):
+            out[nm] = v
+        elif isinstance(v, str) and len(v) <= 80:
+            out[nm] = v
+    return out
+
+
+# human-read
 def reset_figures():
     """Clear figures from the active figure dir and reset the counter, so a new
     session archives only the figures IT made. Sequential runs in one process
@@ -201,6 +242,29 @@ def namespace_summary():
              if name not in _PRELOADED and not name.startswith("_")
              and not inspect.ismodule(val)]
     return ", ".join(parts) if parts else "(empty)"
+
+
+# human-read
+def namespace_detail(per_var=400, total=2000):
+    """Full reprs of the user-defined scratchpad values, for the evidence
+    ledger only -- NOT shown to the model (namespace_summary, which the model
+    sees, stays a lean size hint). This is the debugging counterpart: when a
+    reduction is irreproducible, the actual intermediate values (e.g. the 30
+    booleans behind a sum) are recorded, not just the scalar that was printed.
+    Each value's repr is capped at per_var chars and the whole at total."""
+    parts = []
+    for name, val in _NS.items():
+        if name in _PRELOADED or name.startswith("_") or inspect.ismodule(val):
+            continue
+        try:
+            r = repr(val)
+        except Exception as e:                       # a value that won't repr
+            r = f"<unreprable {type(val).__name__}: {e!r}>"
+        if len(r) > per_var:
+            r = f"{r[:per_var]}...<+{len(r) - per_var} chars>"
+        parts.append(f"{name} = {r}")
+    s = "\n".join(parts)
+    return (f"{s[:total]}...<truncated>" if len(s) > total else s) or "(empty)"
 
 
 # human-read
@@ -289,13 +353,22 @@ def run_python(code: str) -> str:
                 exec(compile(code, "<run_python>", "exec"), _NS)
         out = buf.getvalue()
         if not out:
-            # nothing printed: name the variables the code assigned so the
-            # model prints one instead of fabricating an answer
+            # nothing printed. If the code COMPUTED a scalar, surface its value
+            # so the result is captured (groundable, copyable) -- the model
+            # routinely assigns the answer and forgets to print it (observed
+            # [104]: trilayer_count = 7 computed, never printed, then reported
+            # as a fabricated 0). Only computed scalars, never typed literals.
+            computed = _computed_scalars(tree)
             names = _assigned_names(tree)
-            hint = f" You assigned: {', '.join(names)}." if names else ""
-            out = ("(no output -- nothing was printed." + hint
-                   + " print() the value you need; do not report values you "
-                   "did not see.)")
+            if computed:
+                vals = "; ".join(f"{k} = {v!r}" for k, v in computed.items())
+                out = ("(no print() call -- showing the computed scalar "
+                       "value(s) so the result is captured: " + vals + ")")
+            else:
+                hint = f" You assigned: {', '.join(names)}." if names else ""
+                out = ("(no output -- nothing was printed." + hint
+                       + " print() the value you need; do not report values "
+                       "you did not see.)")
     except Exception as e:
         out = buf.getvalue() + "\n" + _format_user_traceback(e, code)
         missing = getattr(e, "name", None)
