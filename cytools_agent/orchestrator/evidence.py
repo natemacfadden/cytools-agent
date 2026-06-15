@@ -66,7 +66,12 @@ def session_provenance():
     is_trilayer and friends are basis-sensitive, so a flint/cytools bump can
     silently change an answer; without this we can only guess which changed."""
     import sys
-    prov = {"python": sys.version.split()[0]}
+    # the conda env / interpreter prefix is the SINGLE clearest signal: running
+    # the wrong env (e.g. base) silently swaps cytools for a stray version and
+    # breaks NTFE / changes is_trilayer. Record it first.
+    prov = {"python": sys.version.split()[0],
+            "sys_prefix": sys.prefix,
+            "conda_env": os.environ.get("CONDA_DEFAULT_ENV")}
 
     def _ver(mod):
         try:
