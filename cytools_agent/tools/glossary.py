@@ -180,7 +180,10 @@ _GLOSSARY = {
     "triple intersection numbers": (
         "The intersection-ring numbers kappa_ijk of the CY, in a divisor "
         "basis.",
-        "get_cy_info(ks_ind, h)['intersection_numbers']  # nonzero, [i,j,k,value]",
+        "get_cy_info(ks_ind, get_heights(ks_ind))['intersection_numbers']  "
+        "# the nonzero in-basis kappa_ijk, each as [i,j,k,value]. For 'how "
+        "many distinct nonzero' wrap in len(...): "
+        "len(get_cy_info(ks_ind, get_heights(ks_ind))['intersection_numbers'])",
         ["intersection numbers", "triple intersections", "intersection ring",
          "kappa"]),
     "second chern class": (

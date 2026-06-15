@@ -521,11 +521,25 @@ def _spec_quantity_issues(spec, direct):
         exprs += " " + spec["search"].get("condition", "")
         exprs += " " + " ".join((spec["search"].get("map") or {}).values())
     toks = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", exprs))
+    by_term = expected_by_term(direct)
     issues = []
-    for term, markers in expected_by_term(direct).items():
+    for term, markers in by_term.items():
         if toks & markers:
             continue
         foreign = toks & (ALL_MARKERS - markers)
+        # only the foreign markers that do NOT belong to ANOTHER matched term
+        # signal a real miscomputation. When every foreign marker present is a
+        # marker of some OTHER term the request also names, the spec is just
+        # computing a different matched quantity -- either a genuine alternative
+        # or a phantom co-match (observed [1]: 'distinct nonzero triple
+        # intersection numbers' spuriously co-matches 'distinct calabi-yaus';
+        # the expression uses intersection_numbers, which IS the right term's
+        # marker). Blocking those sent a correct spec to the walk. The original
+        # case still fires: 'lattice points' compiled to cy_volume, where
+        # cy_volume is not a marker of any matched term.
+        other = set().union(*(m for t, m in by_term.items() if t != term)) \
+            if len(by_term) > 1 else set()
+        foreign -= other
         if foreign:
             from cytools_agent.tools.glossary import cy_glossary
             recipe = cy_glossary(term).get("recipe", "")
@@ -756,7 +770,12 @@ def run_pipeline(spec, evidence):
                                   # map call -- cited next to derived numbers
     _obs(evidence, "pipeline map",
          f"compute_for_each(ids, {spec['map']!r})", r)
-    if r["n_ok"] < max(2, r["n_requested"] // 2):
+    # require "most" items to succeed -- but a SINGULAR fetch (limit=1, e.g.
+    # 'the first polytope at h11=3') has n_requested==1, and the old floor of 2
+    # made that threshold impossible to meet, so every single-polytope spec
+    # raised and fell back to the walk. Floor of 2 only applies past 1 item.
+    need = 1 if r["n_requested"] <= 1 else max(2, r["n_requested"] // 2)
+    if r["n_ok"] < need:
         raise RuntimeError(f"map failed on most items: {r.get('errors')}")
     _audit_sample(_code._NS["ok_ids"], evidence)
 
