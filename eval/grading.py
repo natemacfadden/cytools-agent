@@ -90,6 +90,18 @@ def hit(text, ans, raw=False):
     (which trusts "answer:/count:/**N**" markers) is skipped, since raw output
     has no such rhetoric and the markers misfire on it."""
     t = text.lower()
+    # Negative test: a question with no valid answer (truth == "IMPOSSIBLE").
+    # The model must attempt it and then report that it cannot be done -- pass
+    # iff the answer signals impossibility / non-convergence (and so withholds a
+    # fabricated result). Phrasing varies, so match any of several markers.
+    if isinstance(ans, str) and ans.strip().upper() == "IMPOSSIBLE":
+        return any(m in t for m in (
+            "could not", "cannot", "can't", "no solution", "no such",
+            "infeasible", "not feasible", "unrealizable", "impossible",
+            "does not converge", "did not converge", "doesn't converge",
+            "didn't converge", "fail to converge", "failed to converge",
+            "not converge", "no valid", "unable", "stalled", "no kähler",
+            "no kahler"))
     if isinstance(ans, bool):
         return (bool(re.search(r"\byes\b|\btrue\b", t)) if ans
                 else bool(re.search(r"\bno\b|\bfalse\b|\bnot\b|non-", t)))
