@@ -121,6 +121,23 @@ def hit(text, ans, raw=False):
         # exact list literal present (handles ordered / nested forms)
         if re.sub(r"\s", "", str(ans)) in re.sub(r"\s", "", text):
             return True
+        # a "list of entries" (e.g. [i,j,k,value] intersection rows, or Mori-cone
+        # rays): the ENTRY ORDER is arbitrary, but each entry must be intact (you
+        # can't permute within an entry). So require every entry to appear as its
+        # own bracketed/parenthesised group, in any order -- the brackets stop a
+        # match straddling two entries (which a flat multiset check would allow).
+        def _entry_list(a):
+            return (a and all(isinstance(e, (list, tuple)) and len(e) == len(a[0])
+                              and all(not isinstance(x, (list, tuple)) for x in e)
+                              for e in a))
+        if _entry_list(ans):
+            norm = re.sub(r"\s", "", text)
+            def _n(x):
+                x = round(float(x), 3)
+                return str(int(x)) if x == int(x) else str(x)
+            return all(("[" + ",".join(_n(x) for x in e) + "]") in norm
+                       or ("(" + ",".join(_n(x) for x in e) + ")") in norm
+                       for e in ans)
         # else demand a CONTIGUOUS run of numbers whose multiset matches the
         # whole answer -- so e.g. "12 simplices" can't satisfy a [1,...,2,...]
         # truth just because the digits 1 and 2 appear somewhere
