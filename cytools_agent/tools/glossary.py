@@ -193,11 +193,19 @@ _GLOSSARY = {
         ["c2", "chern class", "second chern"]),
     "gopakumar-vafa invariants": (
         "Gopakumar-Vafa (GV) invariants: integer BPS counts of the CY, one per "
-        "effective curve class up to a degree cutoff. compute_gvs(max_deg=N) "
-        "returns an Invariants object; .gvs is the list of GV integers and "
-        ".charges the matching curve classes (use .gws for Gromov-Witten).",
-        "get_cy(ks_ind, h).compute_gvs(max_deg=10).gvs   "
-        "# list of GV ints; reduce with max()/len(); .charges for curve classes",
+        "effective curve class up to a degree cutoff. They are PHASE-dependent: "
+        "a polytope can have several triangulations (CYs), each with its own "
+        "GVs -- so always build the CY from a chosen triangulation, never a "
+        "hard-coded default. compute_gvs(max_deg=N) returns an Invariants "
+        "object: .gv([curve_class]) gives ONE class's GV (for h11=1 the "
+        "degree-d class is [d]), .gvs is the list of all GV integers, .charges "
+        "the matching curve classes (use .gws for Gromov-Witten).",
+        "get_cy(ks_ind, get_heights(ks_ind)['heights'][0]).compute_gvs("
+        "max_deg=10)   # pass ONE height vector (['heights'][i]) so get_cy "
+        "returns that triangulation's CalabiYau (which has compute_gvs); the "
+        "whole get_heights result returns a result-list with no compute_gvs. "
+        "Then .gv([curve_class]) (e.g. .gv([1]) = degree-1), or .gvs for the "
+        "list. Works for ANY triangulation -- iterate ['heights'] for each CY.",
         ["gv", "gvs", "gv invariant", "gv invariants", "gopakumar vafa",
          "gopakumar-vafa", "bps invariants", "bps states", "bps counts"]),
     "2-face lattice points": (
@@ -290,9 +298,12 @@ _GLOSSARY = {
         "Prime toric divisors of the CY = the boundary lattice points not "
         "interior to facets (every lattice point except the origin and those "
         "interior to facets). The count is n_prime_toric_divisors.",
-        "get_cy_info(ks_ind, h)['n_prime_toric_divisors']   # == "
-        "len(get_polytope(ks_ind).boundary_points_not_interior_to_facets())",
-        ["toric divisors", "number of prime toric divisors"]),
+        "get_cy_info(ks_ind)['n_prime_toric_divisors']   # point-independent, "
+        "no heights needed; use get_cy_info (NOT get_polytope_info, which lacks "
+        "this field). == len(get_polytope(ks_ind)."
+        "boundary_points_not_interior_to_facets())",
+        ["toric divisors", "number of prime toric divisors",
+         "prime toric divisors"]),
     "glsm charge matrix": (
         "GLSM charge (weight) matrix of the polytope.",
         "get_polytope(ks_ind).glsm_charge_matrix()",
