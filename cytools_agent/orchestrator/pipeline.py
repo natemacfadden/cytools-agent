@@ -802,10 +802,17 @@ def run_pipeline(spec, evidence):
             tail = " ..." if len(vals) > 40 else ""
             parts.append(f"{name}: {shown}{tail}")
     for red in spec["reduce"]:
-        val = _reduce(red["op"], cols[red["of"]], ok_ids)
+        op = red["op"]
+        # a single-polytope fetch with argmax/argmin is degenerate: there is
+        # only one polytope, so it would return that polytope's id instead of
+        # the asked value (observed: 'is it favorable?' -> argmax -> the id, not
+        # True/False). Report the value instead (max of a 1-element list == it).
+        if op in ("argmax", "argmin") and len(ok_ids) == 1:
+            op = "max"
+        val = _reduce(op, cols[red["of"]], ok_ids)
         _obs(evidence, f"pipeline reduce {red['name']}",
-             f"{red['op']}({red['of']})", val)
-        parts.append(f"{red['name']} ({red['op']} of {red['of']}): {val} "
+             f"{op}({red['of']})", val)
+        parts.append(f"{red['name']} ({op} of {red['of']}): {val} "
                      f"[ledger row {map_row}].")
 
     for p in spec.get("plot") or []:

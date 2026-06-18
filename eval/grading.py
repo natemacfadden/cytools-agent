@@ -101,7 +101,8 @@ def hit(text, ans, raw=False):
             "does not converge", "did not converge", "doesn't converge",
             "didn't converge", "fail to converge", "failed to converge",
             "not converge", "no valid", "unable", "stalled", "no kähler",
-            "no kahler"))
+            "no kahler", "not found", "no polytope", "not completed",
+            "could not be", "none found", "no point"))
     if isinstance(ans, bool):
         return (bool(re.search(r"\byes\b|\btrue\b", t)) if ans
                 else bool(re.search(r"\bno\b|\bfalse\b|\bnot\b|non-", t)))
