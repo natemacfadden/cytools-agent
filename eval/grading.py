@@ -119,6 +119,11 @@ def hit(text, ans, raw=False):
     if isinstance(ans, float):
         return any(f"{round(ans, d)}" in text for d in (1, 2, 3, 4, 6))
     if isinstance(ans, (list, tuple)):
+        # treat a tuple rendering "(2, 7)" as identical to the list "[2, 7]":
+        # convert parenthesised number-groups to square brackets first, so the
+        # round-paren strip (an int-answer coordinate-notation guard inside
+        # _denoise) can't hide a list/tuple answer. Int answers keep that guard.
+        text = re.sub(r"\(\s*(-?\d+(?:\s*,\s*-?\d+)*)\s*\)", r"[\1]", text)
         # exact list literal present (handles ordered / nested forms)
         if re.sub(r"\s", "", str(ans)) in re.sub(r"\s", "", text):
             return True
