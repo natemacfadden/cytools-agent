@@ -391,6 +391,39 @@ _SINGULAR_POLY_RE = re.compile(
 # making single-polytope count questions flaky ([2],[86],[100],[17]).
 _PLURAL_COUNT_RE = re.compile(r"\bfirst\s+\d+\b|\b\d+\s+polytopes\b", re.I)
 
+# a POSITIONAL reference picks ONE polytope from the fetched batch by rank:
+# "the second polytope at h11=4", "the 3rd polytope", "the polytope at index
+# 15". The fetch/map/reduce spec has no positional op, so the harness selects
+# the element deterministically -- no load on the weak model, which just
+# computes the column as usual. The ordinal must DIRECTLY qualify "polytope"
+# (only Hodge/KS descriptors may sit between it and the noun), so "the second
+# Chern class" or "the second-largest" is never misread as a selection.
+_ORDINALS = {"first": 0, "second": 1, "third": 2, "fourth": 3, "fifth": 4,
+             "sixth": 5, "seventh": 6, "eighth": 7, "ninth": 8, "tenth": 9}
+_SEL_FILLER = (r"(?:h[\^_]?\{?\d+\}?\s*=?\s*-?\d+|kreuzer[- ]skarke|ks|"
+               r"reflexive|favorable|lattice|[,]|\s)*")
+_SEL_INDEX_RE = re.compile(r"\bindex\s+(\d+)\b", re.I)
+_SEL_ORD_NUM_RE = re.compile(
+    rf"\b(\d+)(?:st|nd|rd|th)\s+{_SEL_FILLER}polytope\b", re.I)
+_SEL_ORD_WORD_RE = re.compile(
+    rf"\b({'|'.join(_ORDINALS)})\s+{_SEL_FILLER}polytope\b", re.I)
+
+
+def _parse_select_index(asked):
+    """0-based index of the polytope a positional reference names, else None.
+    Bare 'first' is left to the singular-limit path (it already fetches index
+    0); this handles 'index N' and ordinals >= second."""
+    m = _SEL_INDEX_RE.search(asked)
+    if m:
+        return int(m.group(1))
+    m = _SEL_ORD_NUM_RE.search(asked)
+    if m and int(m.group(1)) >= 2:
+        return int(m.group(1)) - 1
+    m = _SEL_ORD_WORD_RE.search(asked)
+    if m and _ORDINALS[m.group(1).lower()] >= 1:
+        return _ORDINALS[m.group(1).lower()]
+    return None
+
 
 # words that mean the question wants a COMPUTED result (a number, extremum,
 # count, list, or figure) -- an explain spec on any of these is the model
@@ -764,6 +797,16 @@ def run_pipeline(spec, evidence):
              f"h21={f.get('h21')!r}, favorable={f.get('favorable')!r})",
              f"{len(ids)} ids: {list(ids[:5])}...")
 
+    sel = f.get("_select")
+    if sel is not None:
+        if sel >= len(ids):
+            raise RuntimeError(f"requested the polytope at index {sel} but "
+                               f"only {len(ids)} were fetched")
+        ids = [ids[sel]]
+        _obs(evidence, "pipeline select",
+             f"ids[{sel}]   # positional reference", ids[0])
+        spec["reduce"] = []   # one polytope: its map column is the deliverable
+
     from cytools_agent.tools import ledger
     r = compute_for_each(ids, spec["map"])
     map_row = ledger.last_id()    # the harness-written backbone row for the
@@ -842,6 +885,29 @@ def _apply_singular_limit(spec, asked, log):
         log("[pipeline]", "singular reference -> limit=1")
 
 
+def _apply_select_index(spec, asked, log):
+    """Positional reference ('the second polytope', 'index 15'): record the
+    0-based index on the fetch and ensure enough polytopes are fetched to reach
+    it. Only for a normal single-h11 fetch -- an index across several h11 values
+    is ambiguous, so it is left alone. run_pipeline slices to that one polytope
+    before the map runs (so the quantity is computed for it alone, not the
+    whole batch) and drops the reduce."""
+    fc = spec.get("fetch") or {}
+    if (spec.get("search") or spec.get("explain")
+            or fc.get("_census") or fc.get("use_stored")):
+        return
+    h11 = fc.get("h11")
+    if isinstance(h11, list) and len(h11) != 1:
+        return
+    k = _parse_select_index(asked)
+    if k is None:
+        return
+    fc["_select"] = k
+    if (fc.get("limit") or 0) < k + 1:
+        fc["limit"] = k + 1
+    log("[pipeline]", f"positional reference -> select index {k}")
+
+
 def _spec_issue(spec, asked, direct):
     """All post-schema validation for a compiled spec, in ONE place so the
     main compile loop and the runtime-recompile path cannot drift (they did:
@@ -888,6 +954,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
         emit("pipeline", fits=False, reason=why, spec=spec)
         return None
     _apply_singular_limit(spec, asked, log)
+    _apply_select_index(spec, asked, log)
     emit("pipeline", fits=True, spec=spec)
     log("[pipeline spec]", str(spec))
     try:
@@ -916,6 +983,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
                 cheatsheet, context=context)
             if not _spec_issue(spec2, asked, direct):
                 _apply_singular_limit(spec2, asked, log)   # same as first spec
+                _apply_select_index(spec2, asked, log)
                 emit("pipeline", fits=True, spec=spec2, retry=True)
                 return run_pipeline(spec2, evidence)
         except Exception as e2:
