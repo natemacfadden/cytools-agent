@@ -78,7 +78,11 @@ def _claimed_ints(text):
         m = re.match(r"\s*(-?[\d,]+)\b", span)
         if m:
             claims.append(m.group(1).replace(",", ""))
-    for m in re.finditer(r"(?:answer|total|count)\D{0,12}?(-?\d[\d,]*)",
+    # word-boundaried: the marker must be a standalone word, not a substring of
+    # an identifier -- the pipeline auto-names columns like `face_count_2`, and
+    # a bare `count` match there grabbed the `2` from `count_2` instead of the
+    # real answer, marking correct answers (e.g. 27) wrong.
+    for m in re.finditer(r"\b(?:answer|total|count)\b\D{0,12}?(-?\d[\d,]*)",
                          text, re.I):
         claims.append(m.group(1).replace(",", ""))
     return claims
