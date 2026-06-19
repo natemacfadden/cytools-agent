@@ -793,6 +793,13 @@ def run_pipeline(spec, evidence):
              + (" (favorable)" if f.get("favorable") else "") + "."]
     if f.get("_limit_note"):
         parts.append(f"Note: {f['_limit_note']}.")
+    # a single-polytope fetch has nothing to aggregate over: reduce ops
+    # (mean/min/max/sum/count/argmax/...) only mean something across a SET, so
+    # any reduce the model emitted here is spurious. argmax/argmin would even
+    # return the lone polytope's id instead of the asked value. Drop the reduce
+    # and let the map column itself be the deliverable (handled just below).
+    if len(ok_ids) == 1:
+        spec["reduce"] = []
     if not spec["reduce"]:
         # no aggregation asked: the per-item values ARE the deliverable --
         # show them (briefly) instead of only naming the columns
@@ -803,12 +810,6 @@ def run_pipeline(spec, evidence):
             parts.append(f"{name}: {shown}{tail}")
     for red in spec["reduce"]:
         op = red["op"]
-        # a single-polytope fetch with argmax/argmin is degenerate: there is
-        # only one polytope, so it would return that polytope's id instead of
-        # the asked value (observed: 'is it favorable?' -> argmax -> the id, not
-        # True/False). Report the value instead (max of a 1-element list == it).
-        if op in ("argmax", "argmin") and len(ok_ids) == 1:
-            op = "max"
         val = _reduce(op, cols[red["of"]], ok_ids)
         _obs(evidence, f"pipeline reduce {red['name']}",
              f"{op}({red['of']})", val)
