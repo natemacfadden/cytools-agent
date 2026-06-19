@@ -50,6 +50,7 @@ _PLAN_FORMAT = {
     "required": ["todo"],
 }
 from cytools_agent.orchestrator.evidence import (backing, emit, grounded,
+                                                 last_computed_value,
                                                  render_evidence,
                                                  reset_evidence, reset_session,
                                                  save_log, session_provenance,
@@ -620,6 +621,15 @@ def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
 
     emit("active", who="PM", phase="composing the final answer")
     msg = pm.summarize(direct, render_evidence(), completed)
+    # the model sometimes returns an empty/non-JSON compose reply though the
+    # value was already computed and grounded -- surface it deterministically
+    # instead of the contentless "(done)" fallback (no load on the weak model).
+    if completed and (not msg or msg.strip() == "(done)"):
+        recovered = last_computed_value(evidence)
+        if recovered is not None:
+            log("[summarize empty -- surfaced computed value]", recovered)
+            emit("recovered_value", value=recovered)
+            msg = recovered
     # VERIFY #3: cross-check the answer against the ORIGINAL request -- flag
     # honestly if a requested deliverable is missing rather than papering over it
     emit("active", who="PM", phase="verifying the answer")

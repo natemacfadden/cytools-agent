@@ -311,6 +311,31 @@ def backing(answer, observations):
     return label, sorted(rows_used)
 
 
+def last_computed_value(observations):
+    """The most recent genuinely-computed result in the evidence -- used when
+    the model's compose step came back empty though the value was already
+    computed and grounded (the weak model dropped the copy-into-JSON job). Scans
+    observations newest-first for one whose code actually COMPUTES (not a literal
+    print) and whose captured output carries a value; returns a short string of
+    that output (a clean scalar verbatim, else its last number, else the trimmed
+    text), or None. Tool-call rows are skipped: their results are structured
+    (dicts) with no unambiguous single answer to surface."""
+    for o in reversed(observations or []):
+        if o.get("kind") == "tool_call":
+            continue
+        out = str(o.get("received_output", "")).strip()
+        if not out or _prints_only_literals(o.get("ran_code", "")):
+            continue
+        if re.fullmatch(r"-?\d+\.?\d*", out):     # a lone scalar IS the answer
+            return out
+        nums = re.findall(r"-?\d+\.?\d*", out)
+        if nums:
+            return nums[-1]
+        if len(out) <= 80:
+            return out
+    return None
+
+
 def grounded(answer, observations):
     """True if the answer is backed by real, harness-captured ground truth.
     A PLOT/FILE deliverable (the answer names a figure) is grounded by a real
