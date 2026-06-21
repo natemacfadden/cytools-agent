@@ -51,20 +51,31 @@ def _nums(text):
 # "2-face", the "11"/"4" in "h11=4", the "2" in "c2" or "(2,1)", the "3" in "K3".
 # Stripping these before number-matching stops a truth value from being credited
 # just because it collides with a domain term in the answer's prose.
-_DOMAIN_NOISE = re.compile(
-    # h11, h21, h^1,1, h^{11}, h_{21}, with or without an =N spec
-    r"h[\^_]?\{?\d+(?:\s*,\s*\d+)?\}?(?:\s*=\s*-?\d+)?"
+# Hodge label: h11, h21, h^1,1, h^{11}, h_{21}
+_HODGE_LABEL = r"h[\^_]?\{?\d+(?:\s*,\s*\d+)?\}?"
+# the remaining domain terms (one shared source for both denoise variants)
+_DOMAIN_REST = (
     r"|\bc_?\{?\d+\}?"                                   # c2, c_2, c_{2}
     r"|\d+-(?:face|faces|fold|folds|dimensional|cycle|cycles|form|forms|plane)"
     r"|\(\s*-?\d+\s*,\s*-?\d+\s*\)"                      # (1,1), (2,1)
     r"|\b[KP]\d+\b|\bZ_?\d+\b|\bCP\d+\b|\bSU\(\d+\)|\bE\d\b"  # K3, P1, Z2, CP3...
-    r"|\b\d+[dD]\b",                                     # 4d, 3D
-    re.I)
+    r"|\b\d+[dD]\b")                                     # 4d, 3D
+# default: the Hodge label ALSO consumes an =N spec (h11=4 -> blank), so a
+# question's FILTER digits can't be read as the answer.
+_DOMAIN_NOISE = re.compile(
+    _HODGE_LABEL + r"(?:\s*=\s*-?\d+)?" + _DOMAIN_REST, re.I)
+# keep-hodge-values variant: strip the Hodge LABEL but leave its =N value -- for
+# matching a Hodge-NUMBER answer ("h11=3 and h21=43"), where the values ARE the
+# result and the filter-guard strip would otherwise delete them.
+_DOMAIN_NOISE_KEEP_HODGE = re.compile(_HODGE_LABEL + _DOMAIN_REST, re.I)
 
 
-def _denoise(text):
-    """Blank out domain-term digits so number-matching sees only real values."""
-    return _DOMAIN_NOISE.sub(" ", text)
+def _denoise(text, keep_hodge_values=False):
+    """Blank out domain-term digits so number-matching sees only real values.
+    keep_hodge_values: strip the Hodge label but KEEP its =N value (the list
+    matcher uses this so a Hodge-number pair answer isn't eaten)."""
+    rx = _DOMAIN_NOISE_KEEP_HODGE if keep_hodge_values else _DOMAIN_NOISE
+    return rx.sub(" ", text)
 
 
 def _claimed_ints(text):
@@ -152,7 +163,8 @@ def hit(text, ans, raw=False):
         # whole answer -- so e.g. "12 simplices" can't satisfy a [1,...,2,...]
         # truth just because the digits 1 and 2 appear somewhere
         target = sorted(round(float(e), 3) for e in _flat(ans))
-        nums, w = _nums(text if raw else _denoise(text)), len(target)
+        nums, w = (_nums(text if raw else _denoise(text, keep_hodge_values=True)),
+                   len(target))
         return any(sorted(nums[i:i + w]) == target
                    for i in range(len(nums) - w + 1))
     return str(ans).lower() in t
