@@ -584,11 +584,14 @@ def _spec_quantity_issues(spec, direct):
     return "; ".join(issues)
 
 
-def compile_pipeline(pm, direct, cheatsheet, context=""):
+def compile_pipeline(pm, direct, cheatsheet, context="", raw=""):
     """One schema-constrained compile call -> the spec dict (unvalidated).
     `context` carries prior-turn information (previous questions/answers and
-    the stored id lists) so follow-ups can resolve references."""
-    gloss = glossary_context(direct) or ""
+    the stored id lists) so follow-ups can resolve references. `raw` is the
+    original question: glossary recipes are matched over it too, since translate
+    may reword a canonical term out of the glossary vocabulary ("interior to
+    facets" -> "inside the facets") and the recipe hint would then be missed."""
+    gloss = glossary_context(f"{direct} {raw}".strip()) or ""
     user = ((f"{context}\n\n" if context else "")
             + f"REQUEST:\n{direct}\n\n{cheatsheet}"
             + (f"\n\n{gloss}" if gloss else ""))
@@ -920,11 +923,15 @@ def _spec_issue(spec, asked, direct):
     if spec.get("explain"):
         # the only guard that applies to explain: did it dodge real work?
         return _explain_issue(spec, asked)
-    # the range / plot / quantity guards are about COMPUTE specs
+    # the range / plot / quantity guards are about COMPUTE specs. ALL key on the
+    # raw `asked`, not the paraphrased `direct`: translate rewords a glossary
+    # term out of its canonical vocabulary ("interior to facets" -> "inside the
+    # facets"), so matching the recipe on `direct` misses it and the lint passes
+    # a wrong quantity (observed id 14: points-interior-to-facets -> n_points).
     why = _range_issue(spec, asked) or _plot_issue(spec, asked)
     if why:
         return why
-    why = _spec_quantity_issues(spec, direct)
+    why = _spec_quantity_issues(spec, asked)
     return ("quantity lint: " + why) if why else ""
 
 
@@ -940,7 +947,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
     for _attempt in range(2):    # compile, then at most one guided recompile
         try:
             spec = compile_pipeline(pm, direct + feedback, cheatsheet,
-                                    context=context)
+                                    context=context, raw=raw)
         except Exception as e:
             emit("pipeline", fits=False, reason=f"compile error: {e}")
             return None
@@ -980,7 +987,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
                 pm, direct + ("\n\n(Your previous attempt failed when RUN: "
                               f"{e}. Fix exactly that -- use the glossary "
                               "recipes verbatim.)"),
-                cheatsheet, context=context)
+                cheatsheet, context=context, raw=raw)
             if not _spec_issue(spec2, asked, direct):
                 _apply_singular_limit(spec2, asked, log)   # same as first spec
                 _apply_select_index(spec2, asked, log)
