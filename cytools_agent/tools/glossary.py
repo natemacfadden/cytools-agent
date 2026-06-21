@@ -259,6 +259,17 @@ _GLOSSARY = {
         "len(get_polytope(ks_ind).points_interior_to_facets())",
         ["points interior to a facet", "facet-interior points",
          "lattice points interior to facets", "points in facet interiors"]),
+    "boundary points not interior to facets": (
+        "Boundary lattice points that are NOT interior to a facet -- the points "
+        "on faces of codimension >= 2 (vertices, edges, 2-faces). For a "
+        "reflexive polytope this is points_not_interior_to_facets minus the lone "
+        "interior point (the origin), and equals the number of prime toric "
+        "divisors of the CY (see 'prime toric divisors').",
+        "len(get_polytope(ks_ind).points_not_interior_to_facets()) - 1   "
+        "# drop the origin (the only interior point)",
+        ["boundary points not interior to facets",
+         "boundary lattice points not interior to facets",
+         "boundary points", "boundary lattice points"]),
     "polytope dimension": (
         "The (ambient lattice) dimension of the polytope -- 4 for every 4d "
         "reflexive polytope in this database. NOT h11 (that is the dimension "
@@ -593,6 +604,7 @@ _SECTIONS = [
      "the reflexive polytope itself: its points, faces, dual, and identity",
      ["lattice points", "2-face lattice points",
       "points not interior to facets", "points interior to facets",
+      "boundary points not interior to facets",
       "dual point count", "lattice volume", "polytope dimension", "facet",
       "face count", "dual polytope", "automorphisms", "normal form",
       "content id"]),
