@@ -167,14 +167,14 @@ _GLOSSARY = {
          "min curve volume", "toric-curve volume"]),
     "divisor volume": (
         "Volume of a basis divisor at a Kahler point t.",
-        "get_cy_info(ks_ind, h, t='tip')['divisor_volumes']",
+        "get_cy_info(ks_ind, h, t='tip', cone='toric')['divisor_volumes']",
         ["divisor volumes"]),
     "cy volume": (
         "Total volume of the Calabi-Yau at a Kahler point t. It is CUBIC in t "
         "(kappa . t^3 / 6), so rescaling the Kahler moduli t -> s*t scales the "
         "volume by s^3 (and a curve/divisor volume, being linear/quadratic, by "
         "s / s^2).",
-        "get_cy_info(ks_ind, h, t='tip')['cy_volume']",
+        "get_cy_info(ks_ind, h, t='tip', cone='toric')['cy_volume']",
         ["calabi-yau volume", "total cy volume", "volume of the calabi-yau",
          "how volume scales", "volume scaling with kahler moduli"]),
     "triple intersection numbers": (
