@@ -123,7 +123,14 @@ def _effective_timeout():
     return eff
 
 
-class _RunPythonTimeout(Exception):
+class _RunPythonTimeout(BaseException):
+    """Wall-clock cap breach. Inherits BaseException (NOT Exception) so a
+    per-item `except Exception` in tool/user code -- e.g. compute_for_each's or
+    search_polytopes' loop, which catch a bad item and `continue` -- cannot
+    swallow it. Otherwise the one-shot SIGALRM fires once, is caught as a
+    'failed item', and the remaining work runs UNCAPPED (observed: a 5000-
+    polytope CY sweep ran ~7000s past a 500s budget). It now propagates to
+    run_python's own handler, which stops the call."""
     pass
 _FIG_DIR = os.environ.get("CYTOOLS_AGENT_FIG_DIR", "scratch")   # sandboxable
 _fig_count = 0
@@ -369,6 +376,10 @@ def run_python(code: str) -> str:
                 out = ("(no output -- nothing was printed." + hint
                        + " print() the value you need; do not report values "
                        "you did not see.)")
+    except _RunPythonTimeout as e:
+        # the wall-clock cap fired (it bypassed any per-item except Exception):
+        # stop here with the pointed message, keeping whatever was printed
+        out = buf.getvalue() + "\n[" + str(e) + "]"
     except Exception as e:
         out = buf.getvalue() + "\n" + _format_user_traceback(e, code)
         missing = getattr(e, "name", None)
