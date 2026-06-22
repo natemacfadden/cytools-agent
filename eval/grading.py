@@ -132,6 +132,20 @@ def hit(text, ans, raw=False):
                               re.sub(r",", "", text if raw
                                      else _denoise(text))))
     if isinstance(ans, float):
+        # tolerant numeric match: a computed float carries precision noise
+        # (e.g. 0.9999999999999987 for 1.0) that a literal-substring check on the
+        # rounded truth would miss. Compare VALUES within tolerance -- but only
+        # for DECIMAL tokens: a bare integer is usually incidental ("stretch 1"),
+        # and crediting it would let a refusal pass on a clean truth like 1.0.
+        tol = 1e-4 + 1e-4 * abs(ans)
+        for m in re.findall(r"-?\d+\.\d+", text):
+            try:
+                if abs(float(m) - ans) <= tol:
+                    return True
+            except ValueError:
+                pass
+        # fall back to the rounded-literal check (catches coarser roundings like
+        # "3.67" for 3.666667, and integer-written truths)
         return any(f"{round(ans, d)}" in text for d in (1, 2, 3, 4, 6))
     if isinstance(ans, (list, tuple)):
         # treat a tuple rendering "(2, 7)" as identical to the list "[2, 7]":
