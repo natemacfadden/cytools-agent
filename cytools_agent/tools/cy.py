@@ -79,6 +79,17 @@ def _as_heights(heights):
     through (a single height vector, or a list of them)."""
     if isinstance(heights, dict) and "heights" in heights:
         return heights["heights"]
+    # a bare scalar (e.g. the model passed a Hodge number as `heights`) would
+    # otherwise hit `heights[0]` downstream and raise a cryptic "'int' object is
+    # not subscriptable". Catch it here with a message that names the mistake.
+    if heights is not None and not isinstance(heights, (list, tuple, np.ndarray)):
+        raise TypeError(
+            f"heights must be a height vector (a list of numbers), a list of "
+            f"them, or the get_heights(ks_ind) result -- got "
+            f"{type(heights).__name__} {heights!r}. Omit heights for the default "
+            f"triangulation, or pass get_heights(ks_ind)['heights'][0]. (A bare "
+            f"number here is often a mistaken Hodge number -- those are fetch "
+            f"filters, e.g. fetch_polytopes(h21=...).)")
     return heights
 
 
