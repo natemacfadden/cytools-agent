@@ -89,7 +89,7 @@ Three question corpora live under `eval/`, differing by who wrote them and wheth
 | `eval/pm_corpus.jsonl` | 10 hard multi-step plot/research | known | agent-authored during development |
 | `eval/heldout.jsonl` | 25 authentic research questions | held out (computed later) | **human-written** (frozen; source `n8`) |
 
-(`eval/ladder.jsonl` is a 6-rung difficulty ladder, not a research corpus.) Run from the repo root — pick the line for the corpus you want:
+(`eval/ladder.jsonl` is a 6-rung difficulty ladder, not a research corpus.) Run from the repo root -- pick the line for the corpus you want:
 
 ```sh
 # agent-written, known answers -> auto-graded against the stored truths
@@ -115,18 +115,87 @@ The system ladder writes self-describing result files (rung, model, corpus, comm
 
 The harness rests on one principle: **the model is helpful but untrustworthy.** It is never trusted for the two things models get wrong -- what they *know* and what they *claim* -- and each gets a pillar.
 
+### Flow of a query
+
+A question is first restated, then routed by the model into one of three shapes, and finally every number is checked against the evidence before it reaches you:
+
+```mermaid
+flowchart TD
+    Q["user query"] --> translate
+    subgraph translate
+        direction TB
+        EI["encyclopedia injection"] --> RQ["<b>PM agent:</b> restate query plainly"]
+    end
+    translate --> compile
+    subgraph compile
+        direction TB
+        EI2["encyclopedia injection"] --> FS["<b>PM agent:</b> fill query schema"] --> GC["guards check"]
+        GC -.->|"fail: recompile <=1 times"| FS
+    end
+    compile -->|explain| E["concatenate <=5 encyclopedia/docstring lookups"]
+    compile -->|pipeline| P["run the typed spec"]
+    compile -->|misfit| PL["<b>PM agent:</b> plan steps"]
+    PL --> FF
+    subgraph FF["free-form loop"]
+        direction TB
+        GT["<b>PM agent:</b> give next task"] --> EN["<b>engineer agent:</b> tool/code use to answer task"]
+        DN(["<b>PM agent:</b> done?"]) -->|"not done"| GT
+    end
+    E --> L[("<b>truth ledger</b><br/>history of ran code and outputs")]
+    P --> L
+    EN --> L
+    L --> DN
+    L -->|"pipeline/explain paths"| V["<b>PM agent:</b> verify complete? (lenient)"]
+    V --> A["answer, cites ledger rows"]
+    DN -->|"done"| GB(["every number backed by the ledger?"])
+    GB -->|"no"| R["refuse"]
+    GB -->|"yes"| V
+```
+
+Routing is model-driven but harness-checked: the compile step is one constrained model call that picks the shape; deterministic guards then validate that choice (and trigger one recompile), and only a clean spec runs. Anything that doesn't fit falls through to the forgiving plan-and-execute. All three paths write the same truth ledger, so the final gate applies no matter which produced the number. The rest of this section unpacks each piece.
+
+Several of those steps -- `translate`, `compile`, and each `plan-and-execute` step -- begin with a deterministic **encyclopedia injection**: the harness matches the text against the glossary and inserts any matching entries (definition + recipe) into the model's prompt.
+
+```mermaid
+flowchart TD
+    subgraph EL["encyclopedia injection (no LLM)"]
+        direction TB
+        Q2["query"] --> SP["split into words"]
+        SP --> MK["match words to encyclopedia keys (+ synonyms)"]
+        MK --> D{"key length"}
+        D -->|"<= 2 words"| O["all words present, in order"]
+        D -->|"> 2 words"| AO["all words present, any order"]
+        O --> INJ["inject the matching entry with the most words"]
+        AO --> INJ
+    end
+```
+
+*(Diagrams are [Mermaid](https://mermaid.js.org) blocks -- they render on GitHub and in editors with Mermaid support.)*
+
+**The pipeline schema.** "fill pipeline schema" means the compile call emits one JSON object with seven always-present keys; the chosen shape is just which of them it fills:
+
+- `fits` -- does the query fit any shape at all?
+- `fetch` -- which polytopes to pull: `h11` (a number, a list for a sweep, or null for the whole database), `h21`, `limit` (per h11), `favorable`, `use_stored` (reuse a prior turn's id list).
+- `map` -- 1-3 named one-line Python expressions, each run once per fetched polytope to produce a column. The only free-text part of the spec.
+- `reduce` -- up to 4 aggregations over those columns, each `{name, op, of}`, where `op` is from a fixed set (mean / min / max / sum / count / argmax / argmin / ...).
+- `search` -- SHAPE B: a `condition`, an `objective` (largest_h11 / smallest_h11 / any), optional h11 bounds; else null.
+- `explain` -- SHAPE C: `kind` (concept / capability) plus up to 5 lookup `queries`; else null.
+- `plot` -- up to 4 figures (`kind` is one of scatter / histogram / line / bar, plus x / y / color / log flags); else null.
+
+The decoder's grammar guarantees the *form* (every key present, enums legal, lists bounded); the guards then check the *content*.
+
 **The encyclopedia -- knowledge from source.** `cy_glossary` / `reference` map a domain term to a *source-derived* definition and the exact recipe to compute it with these tools. `reference()` is indexed: a table of contents over topic sections, with cross-references, so the model can browse rather than guess. Conceptual questions are answered from that text and from real CYTools docstrings -- never from the model's own memory. An admission gate (`eval/verify_glossary.py`) proves every recipe still executes and every invariant still holds on ~145 polytopes, so the encyclopedia cannot silently drift from the library it describes.
 
 **The truth ledger -- results from evidence.** Every curated tool call is recorded in a harness-written ledger: exact arguments and structured results, rows the model can read but never author. Answers cite the rows backing each number; a classifier marks every numeric claim row-backed, weaker stdout-backed, or unbacked; and computed data is audited against machine-checked identities (`cytools_agent/tools/invariants.py`) -- on a violation the harness *refuses* rather than guess. The same thinking extends to the data layer: the KS cache is a read-only trusted base no run can poison, plus a writable overlay for newly discovered polytopes.
 
-These two are **model-strength-independent** -- they help a frontier model as much as a small local one, because they replace exactly what no model can be trusted for. On top sits a third, more disposable layer: **permissive scaffolding** that lets a *weak* model actually drive -- a typed pipeline (fetch -> map -> reduce -> plot, or search) the harness executes deterministically, schema-constrained decoding so malformed replies cannot be sampled, and a forgiving plan-and-walk fallback. This is most of the line count and what measurably lifts small models (qwen3:8b: 0% to ~40% single-run, ~80% voted, on the hard plot corpus); it matters less as models improve.
+These two are **model-strength-independent** -- they help a frontier model as much as a small local one, because they replace exactly what no model can be trusted for. On top sits a third, more disposable layer: **permissive scaffolding** that lets a *weak* model actually drive -- a typed pipeline (fetch -> map -> reduce -> plot, or search) the harness executes deterministically, schema-constrained decoding so malformed replies cannot be sampled, and a forgiving plan-and-execute fallback. This is most of the line count and what measurably lifts small models (qwen3:8b: 0% to ~40% single-run, ~80% voted, on the hard plot corpus); it matters less as models improve.
 
 Normal use needs none of the knobs below; `setup.sh` configures everything. The scaffolding pieces are flags, on by default, `=0` to disable:
 
 | Flag | What it does |
 |---|---|
 | `CYTOOLS_SCHEMA_ACT` | Model replies decoded under a JSON Schema, so malformed or empty replies cannot be sampled at all. |
-| `CYTOOLS_PIPELINE` | Questions fitting fetch -> map -> reduce -> plot (or search, or explain-from-the-encyclopedia) compile to a typed spec the harness executes deterministically; misfits fall back to the plan-and-walk path. |
+| `CYTOOLS_PIPELINE` | Questions fitting fetch -> map -> reduce -> plot (or search, or explain-from-the-encyclopedia) compile to a typed spec the harness executes deterministically; misfits fall back to the plan-and-execute path. |
 | `CYTOOLS_MAP_TOOLS` | `compute_for_each` / `make_plot` / `search_polytopes`. |
 | `CYTOOLS_FINISH_FORGIVE` | Accept `answer = ...` scratchpad assignment as the step finish signal (grounding still enforced). |
 | `CYTOOLS_NUM_CTX` | Per-request context size (default 16384; `0` = server default). |
