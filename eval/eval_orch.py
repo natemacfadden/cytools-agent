@@ -167,9 +167,9 @@ def main():
             if r["step_failed"]:
                 flags.append("STEP-FAILED")
             if r["off_step"]:
-                flags.append(f"off-step×{r['off_step']}")
+                flags.append(f"off-step x{r['off_step']}")
             if r["max_step_repeat"] >= 3:
-                flags.append(f"loop×{r['max_step_repeat']}")
+                flags.append(f"loop x{r['max_step_repeat']}")
             if r["n_tracebacks"]:
                 flags.append(f"errs={r['n_tracebacks']}")
             print(f"\n[{i}.{rep}] {r['kind']}  {r['status']}  "
