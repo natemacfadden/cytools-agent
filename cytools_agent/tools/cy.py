@@ -121,7 +121,22 @@ def get_cy(ks_ind: str, heights: list[float] | dict | None = None):
               "get_heights(ks_ind))]")
         tri = poly.triangulate(make_star=True)
     else:
-        tri = poly.triangulate(heights=heights, make_star=True)
+        try:
+            tri = poly.triangulate(heights=heights, make_star=True)
+        except Exception as e:
+            m = str(e).lower()
+            if "height" in m and "point" in m:
+                # the common confusion: VolumeFinder's heights are a
+                # vector-config representation, not triangulation heights, so
+                # feeding them back here mismatches the point count.
+                raise ValueError(
+                    f"{e} -- a height vector needs one entry per triangulation "
+                    "point. If these heights came from "
+                    "find_kahler_for_divisor_volumes (VolumeFinder), they are "
+                    "not triangulation heights; do not pass them to get_cy. "
+                    "The volume at that point is already in that tool's "
+                    "result -- read result['cy_volume'].")
+            raise
     return tri.get_cy()
 
 
@@ -302,3 +317,63 @@ def _cy_cones_one(ks_ind, heights, cone):
     rays = mori.rays().tolist()
     return _InfoDict({"cone": cone, "mori_rays": rays,
                       "kahler_cone_hyperplanes": rays})
+
+
+# model-read (exposed in the run_python namespace)
+@forgive_kwargs
+def find_kahler_for_divisor_volumes(ks_ind: str,
+                                    target: list[float]) -> "_InfoDict":
+    """Find Kahler parameters (heights) of the CY from `ks_ind` at which its
+    basis divisor volumes equal `target`, using fanroots' VolumeFinder
+    root-finder. `target` is a list of divisor volumes, one per basis divisor
+    (length = h11).
+
+    Returns a dict: `converged` (bool), `status` (a message that flags
+    non-convergence), `heights`/`t` (the Kahler point found -- the last iterate
+    even if it did not converge), `divisor_volumes` (achieved; ~= target when
+    converged), and `cy_volume` (the CY volume at `t`). When `converged` is
+    false the target was likely unreachable / outside the Kahler cone, so the
+    numbers are not a solution -- report that it could not be found rather than
+    trusting them.
+    """
+    from cytools_agent.tools.polytope import _h11_of
+    tgt = np.asarray(target, dtype=float)
+    if tgt.ndim != 1:
+        raise TypeError(
+            "target must be a flat list of divisor volumes (one per basis "
+            f"divisor); got an array of shape {tgt.shape}.")
+    h11 = _h11_of(ks_ind)
+    if len(tgt) != h11:
+        raise ValueError(
+            f"target must have {h11} entries -- one per basis divisor of this "
+            f"h11={h11} polytope -- but got {len(tgt)}.")
+    poly = get_polytope(ks_ind)
+    if not poly.is_favorable(lattice="N"):
+        raise ValueError(
+            f"{ks_ind} is non-favorable, so its CY is unsupported here. "
+            "Fetch a favorable one: fetch_polytopes(..., favorable=True).")
+    try:
+        from fanroots.applications.volume_finder import VolumeFinder
+    except ImportError as e:
+        raise ImportError(
+            "fanroots (VolumeFinder) is not importable in this "
+            f"environment: {e}")
+    vc = poly.vc()
+    vf = VolumeFinder(target=tgt, vc=vc, history_level=0, verbosity=0)
+    vf.optimize()
+    converged = vf.finished_reason == "converged"
+    h = np.asarray(vf.heights, dtype=float)
+    t = np.asarray(vc.proj(h), dtype=float)
+    dv = np.asarray(vf.div_vols(h), dtype=float)
+    return _InfoDict({
+        "converged": bool(converged),
+        "status": "converged" if converged else (
+            f"did not converge (finished_reason={vf.finished_reason!r}): the "
+            "target divisor volumes may be unreachable / outside the Kahler "
+            "cone. The values below are the last iterate, not a solution -- "
+            "do not report them as the answer."),
+        "heights": h.tolist(),
+        "t": t.tolist(),
+        "divisor_volumes": dv.tolist(),
+        "cy_volume": float(t @ dv / 3.0),
+    })

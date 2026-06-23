@@ -65,6 +65,7 @@ _NS = {
     "get_cy": cy.get_cy,
     "get_cy_info": cy.get_cy_info,
     "get_cy_cones": cy.get_cy_cones,
+    "find_kahler_for_divisor_volumes": cy.find_kahler_for_divisor_volumes,
 }
 # Adapt to the model's instinct: small models often write `import get_cy_info`
 # even though the tools are preloaded. Registering each preloaded callable in

@@ -177,6 +177,19 @@ _GLOSSARY = {
         "get_cy_info(ks_ind, h, t='tip', cone='toric')['cy_volume']",
         ["calabi-yau volume", "total cy volume", "volume of the calabi-yau",
          "how volume scales", "volume scaling with kahler moduli"]),
+    "kahler parameters for target divisor volumes": (
+        "Find the Kahler parameters (heights/t) of the CY at which its basis "
+        "divisor volumes equal a given target vector, via fanroots' "
+        "VolumeFinder root-finder. The result holds heights, t, the achieved "
+        "divisor_volumes, and cy_volume at that point; check 'converged' "
+        "(false => the target was unreachable, so the numbers are not a "
+        "solution).",
+        "find_kahler_for_divisor_volumes(ks_ind, target)['cy_volume']   "
+        "# target = the divisor-volume vector from the question (length h11); "
+        "the dict also has heights, t, divisor_volumes, converged",
+        ["volumefinder", "fanroots", "fanroots volumefinder",
+         "kahler parameters at target volumes",
+         "kahler parameters for divisor volumes"]),
     "triple intersection numbers": (
         "The intersection-ring numbers kappa_ijk of the CY, in a divisor "
         "basis.",
@@ -624,7 +637,8 @@ _SECTIONS = [
     ("Cones & Kahler moduli",
      "Mori/Kahler cones and the volumes evaluated at a Kahler point",
      ["mori cone", "mori cone cap", "kahler cone", "kahler moduli space",
-      "stretched cone tip", "toric curve volume", "divisor volume"]),
+      "stretched cone tip", "toric curve volume", "divisor volume",
+      "kahler parameters for target divisor volumes"]),
     ("Calabi-Yau invariants",
      "numbers computed from a chosen triangulation's Calabi-Yau",
      ["cy volume", "triple intersection numbers",

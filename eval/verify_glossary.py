@@ -92,6 +92,10 @@ def verify_recipes(ks):
     print("== glossary recipes execute ==", flush=True)
     _code.run_python(f"ks_ind = {ks!r}")
     _code.run_python("h = get_heights(ks_ind)['heights'][0]")
+    # the VolumeFinder recipe takes a `target` divisor-volume vector (one per
+    # basis divisor); the model fills it from the question, so bind a dummy of
+    # the right length here just so the recipe executes in the gate.
+    _code.run_python("target = [1.0] * get_polytope_info(ks_ind)['h11']")
     fails = 0
     for term, (_d, recipe, _s) in sorted(_GLOSSARY.items()):
         code = recipe.split("#")[0].strip()
