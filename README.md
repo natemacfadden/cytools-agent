@@ -115,6 +115,15 @@ The system ladder writes self-describing result files (rung, model, corpus, comm
 
 The harness rests on one principle: **the model is helpful but untrustworthy.** It is never trusted for the two things models get wrong -- what they *know* and what they *claim* -- and each gets a pillar.
 
+### Design principles
+
+A few principles run underneath everything, all aimed at getting a *weak* model to do *correct* work:
+
+- **Minimize system prompts.** A system prompt is generic, always-on text -- it tends to act as noise as much as signal. Prefer to shape behavior through the tools and the harness rather than through more prompting.
+- **Guide the model in directed, stateful ways.** Feedback lands best when it reaches the model in a specific state: a detailed error message, delivered exactly when the model is mid-computation attempting one concrete thing, is far more pointed than a general instruction it read long ago. (Most error messages here are written for the model, not the developer.)
+- **Be forgiving at the tool boundary.** If a tool call is unambiguous to a human, support it instead of rejecting it -- accept the synonym, the stray kwarg, the slightly-off form, and steer from there.
+- **Minimize where we trust the model.** Let the model *guide* the computational flow, but don't take its word for what it was trying to do or what a result means -- hand that judgement to a separate model. Splitting the work lets each agent specialize (one on tool-calling skill, one on correctness) and keeps a weak model juggling many concerns from poisoning the result -- a separation-of-goals (cf. [arXiv:2605.22763](https://arxiv.org/abs/2605.22763v1)).
+
 ### Flow of a query
 
 A question is first restated, then routed by the model into one of three shapes, and finally every number is checked against the evidence before it reaches you:
