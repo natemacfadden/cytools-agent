@@ -87,8 +87,11 @@ def verify_invariants(ids, cy_sample):
 
 
 def verify_recipes(ks):
-    """Every glossary recipe must EXECUTE in the run_python namespace (with
-    ks_ind and h prepared as the glossary documents)."""
+    """Every glossary recipe must execute in the run_python namespace (with
+    ks_ind and h prepared as the glossary documents). A recipe that fails
+    only because an optional extra is absent (fanroots, or cytools[gnn] for
+    the gnn sampler) is skipped, not failed, so the default-env gate stays
+    green; it still runs for anyone who installs the extra."""
     print("== glossary recipes execute ==", flush=True)
     _code.run_python(f"ks_ind = {ks!r}")
     _code.run_python("h = get_heights(ks_ind)['heights'][0]")
@@ -96,15 +99,25 @@ def verify_recipes(ks):
     # basis divisor); the model fills it from the question, so bind a dummy of
     # the right length here just so the recipe executes in the gate.
     _code.run_python("target = [1.0] * get_polytope_info(ks_ind)['h11']")
-    fails = 0
+    # the optional-import sites (triangulation.py, cy.py) raise this phrase
+    # when an extra is not installed; such a recipe is skipped, not failed.
+    opt_missing = "is not importable"
+    fails = skipped = 0
     for term, (_d, recipe, _s) in sorted(_GLOSSARY.items()):
         code = recipe.split("#")[0].strip()
         out = _code.run_python(code)
-        if "Traceback" in out:
-            fails += 1
-            print(f"  RECIPE FAILS [{term}]: {code[:70]}")
-            print(f"    {out.strip().splitlines()[-1][:100]}")
-    print(f"  {len(_GLOSSARY) - fails}/{len(_GLOSSARY)} recipes execute")
+        if "Traceback" not in out:
+            continue
+        if opt_missing in out:
+            skipped += 1
+            print(f"  RECIPE SKIPPED [{term}]: optional extra not installed")
+            continue
+        fails += 1
+        print(f"  RECIPE FAILS [{term}]: {code[:70]}")
+        print(f"    {out.strip().splitlines()[-1][:100]}")
+    n = len(_GLOSSARY)
+    extra = f" ({skipped} skipped: optional extra absent)" if skipped else ""
+    print(f"  {n - fails - skipped}/{n} recipes execute{extra}")
     return fails
 
 
