@@ -265,18 +265,30 @@ def _is_noop_print(code):
     return True
 
 
+# small models emit LaTeX (\boxed, \chi, \frac) in the JSON answer field. A
+# lone backslash is either invalid JSON (\chi -> parse dies, answer lost) or
+# a silent control char (\b in \boxed -> backspace). So escape any backslash
+# that is not a valid JSON escape, leaving the LaTeX as literal text; b and f
+# are not preserved (a literal backspace / formfeed is never intended).
+_LATEX_BACKSLASH = re.compile(r'\\(?!["\\/nrtu])')
+
+
 def _parse_json(text):
-    """Parse the first JSON object in `text` (small models add stray prose)."""
+    """Parse the first JSON object in `text` (small models add stray prose,
+    and LaTeX backslashes that must be escaped before the JSON will parse)."""
     text = _strip_template_tags(text or "")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        i = text.find("{")
-        if i >= 0:
-            try:
-                return json.JSONDecoder().raw_decode(text, i)[0]
-            except json.JSONDecodeError:
-                pass
+    # escaped form first: a raw \boxed / \frac would otherwise decode to a
+    # backspace / formfeed and silently corrupt the answer
+    for cand in (_LATEX_BACKSLASH.sub(r'\\\\', text), text):
+        try:
+            return json.loads(cand)
+        except json.JSONDecodeError:
+            i = cand.find("{")
+            if i >= 0:
+                try:
+                    return json.JSONDecoder().raw_decode(cand, i)[0]
+                except json.JSONDecodeError:
+                    pass
     return {}
 
 
