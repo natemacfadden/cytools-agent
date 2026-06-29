@@ -430,7 +430,7 @@ def run_session_voted(user_message, votes=3, agree=2, **kw):
 
 # the session loop -- the conductor
 # ---------------------------------
-def run_session(user_message, model="qwen3:4b", max_rounds=6, verbose=True,
+def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
                 pm_think=False, plan_think=True, eng_think=False,
                 reset=True, context="", max_seconds=900):
     """Run one PM+engineer session and return the PM's reply. The PM plans,
