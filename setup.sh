@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # One-shot setup for cytools-agent.
 # Idempotent: safe to re-run.
-# Assumes the CYTools repo is a sibling: ~/cytools next to ~/cytools-agent.
 
 set -euo pipefail
 
