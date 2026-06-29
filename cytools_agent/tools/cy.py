@@ -30,6 +30,18 @@ import numpy as np
 from cytools_agent.tools.polytope import get_polytope, _InfoDict
 from cytools_agent.tools._synonyms import forgive_kwargs
 
+
+def _exact_int(v, tol=1e-6):
+    """Cast an expected-integer CYTools value to int, raising if it is not
+    integral within tol. Guards against a flint/cytools regression that would
+    otherwise be silently rounded to a wrong integer."""
+    r = round(v)
+    if abs(v - r) > tol:
+        raise ValueError(f"non-integer where integer expected: {v!r} "
+                         f"(|v - round(v)| = {abs(v - r)})")
+    return int(r)
+
+
 # human-read
 class _ResultList(list):
     """A list of per-triangulation result dicts. get_cy_info / get_cy_cones
@@ -176,7 +188,7 @@ def _cy_info_one(ks_ind, heights, t, cone):
         "h21": int(cy.h21()),
         "euler_characteristic": int(2 * (cy.h11() - cy.h21())),
         "second_chern_class": cy.second_chern_class(in_basis=True).tolist(),
-        "intersection_numbers": [[*map(int, k), int(round(v))]
+        "intersection_numbers": [[*map(int, k), _exact_int(v)]
                                  for k, v in dok.items()],
         "n_prime_toric_divisors": len(cy.prime_toric_divisors()),
     })
