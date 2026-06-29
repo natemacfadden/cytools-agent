@@ -15,7 +15,7 @@ conda activate cytools-agent
 jupyter lab
 ```
 
-Open `notebooks/demo.ipynb` with the **Python (cytools-agent)** kernel.
+Open `notebooks/demo.ipynb` -- launched from the activated env, it runs in the default **Python 3** kernel.
 
 `setup.sh` is idempotent and sets Ollama up as a system service (starts on boot, restarts on crashes, configured with the context window the agent needs; one `sudo` prompt on Linux). After setup there is nothing to start or remember.
 

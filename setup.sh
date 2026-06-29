@@ -24,14 +24,7 @@ else
     conda env create -f environment.yml
 fi
 
-echo "    installing cytools-agent (editable) so it imports from anywhere"
-conda run -n cytools-agent pip install -e . --quiet
-
-echo "==> 2. Jupyter kernel"
-conda run -n cytools-agent python -m ipykernel install --user --name cytools-agent --display-name "Python (cytools-agent)" >/dev/null
-echo "    kernel 'Python (cytools-agent)' registered"
-
-echo "==> 3. Ollama"
+echo "==> 2. Ollama"
 if ! command -v ollama >/dev/null 2>&1; then
     if [[ "$(uname)" == "Darwin" ]]; then
         echo "    installing via Homebrew (macOS)"
@@ -48,7 +41,7 @@ fi
 # 4096) silently FRONT-truncates long sessions -- the system prompt is lost
 # first and the model appears to go stupid. The service config below bakes
 # OLLAMA_CONTEXT_LENGTH in so every start (including after reboot) is correct.
-echo "==> 4. Ollama server (as an always-on service, 16k context)"
+echo "==> 3. Ollama server (as an always-on service, 16k context)"
 if [[ "$(uname)" == "Darwin" ]]; then
     # launchd reads env via launchctl; brew services manages the daemon
     launchctl setenv OLLAMA_CONTEXT_LENGTH 16384
@@ -80,10 +73,10 @@ curl -sf http://localhost:11434/api/version >/dev/null 2>&1 \
     || { echo "    Ollama did not come up -- check 'systemctl status ollama'" >&2; exit 1; }
 echo "    server is up on localhost:11434"
 
-echo "==> 5. Pull qwen3:8b (~5.2 GB; idempotent -- fast if cached)"
+echo "==> 4. Pull qwen3:8b (~5.2 GB; idempotent -- fast if cached)"
 ollama pull qwen3:8b
 
 echo
 echo "Done. Launch the notebook with:"
 echo "    conda activate cytools-agent && jupyter lab"
-echo "and select the 'Python (cytools-agent)' kernel (top right)."
+echo "then open notebooks/demo.ipynb (it runs in the env's Python 3 kernel)."
