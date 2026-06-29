@@ -384,12 +384,19 @@ def run_python(code: str) -> str:
     except Exception as e:
         out = buf.getvalue() + "\n" + _format_user_traceback(e, code)
         missing = getattr(e, "name", None)
-        if isinstance(e, ImportError) or (isinstance(e, NameError)
-                                          and missing in _PRELOADED):
-            # the tools are preloaded, not importable modules: a model that
-            # writes `import CYTools` / `import get_cy_info` hits this. Point it
-            # at the CURATED tools (NOT the raw `cytools` module, which would
-            # send it to cytools.fetch_polytopes() and the misleading default).
+        # was the failed import a preloaded tool/module (e.g. `import
+        # CYTools`, a case variant) or a genuine external package (`import
+        # fanroots`)? steer to the preloaded tools only in the former case;
+        # a real missing package should keep its plain traceback.
+        top = (missing or "").split(".")[0].lower()
+        is_preloaded_name = top in {n.lower() for n in _PRELOADED}
+        import_of_preloaded = isinstance(e, ImportError) and is_preloaded_name
+        name_of_preloaded = isinstance(e, NameError) and missing in _PRELOADED
+        if import_of_preloaded or name_of_preloaded:
+            # the tools are preloaded, not importable modules; point a model
+            # that writes `import CYTools` at the curated tools (not the raw
+            # `cytools` module, whose cytools.fetch_polytopes() has a
+            # misleading default).
             out += ("\n[these tools are already available here -- call them "
                     "directly, no import: " + ", ".join(_TOOL_NAMES) + ". Also "
                     "preloaded: np (numpy), plt (matplotlib.pyplot, for plots), "
