@@ -113,16 +113,16 @@ The system ladder writes self-describing result files (rung, model, corpus, comm
 
 ## How it works
 
-The harness rests on one principle: **the model is helpful but untrustworthy.** It is never trusted for the two things models get wrong -- what they *know* and what they *claim* -- and each gets a pillar.
+The two things models get wrong -- what they *know* and what they *claim* -- each get a pillar below, with a third, more disposable scaffolding layer on top that lets a weak model drive.
 
 ### Design principles
 
 A few principles run underneath everything, all aimed at getting a *weak* model to do *correct* work:
 
-- **Minimize system prompts.** A system prompt is generic, always-on text -- it tends to act as noise as much as signal. Prefer to shape behavior through the tools and the harness rather than through more prompting.
-- **Guide the model in directed, stateful ways.** Feedback lands best when it reaches the model in a specific state: a detailed error message, delivered exactly when the model is mid-computation attempting one concrete thing, is far more pointed than a general instruction it read long ago. (Most error messages here are written for the model, not the developer.)
-- **Be forgiving at the tool boundary.** If a tool call is unambiguous to a human, support it instead of rejecting it -- accept the synonym, the stray kwarg, the slightly-off form, and steer from there.
-- **Minimize where we trust the model.** Let the model *guide* the computational flow, but don't take its word for what it was trying to do or what a result means -- hand that judgement to a separate model. Splitting the work lets each agent specialize (one on tool-calling skill, one on correctness) and keeps a weak model juggling many concerns from poisoning the result -- a separation-of-goals (cf. [arXiv:2605.22763](https://arxiv.org/abs/2605.22763v1)).
+- **Minimize system prompts.** Generic, always-on text acts as noise as much as signal; shape behavior through the tools and harness instead.
+- **Guide the model in directed, stateful ways.** A detailed error message delivered mid-computation, while the model is attempting one concrete thing, lands far better than a general instruction read long ago. (Most error messages here are written for the model, not the developer.)
+- **Be forgiving at the tool boundary.** If a call is unambiguous to a human, support it rather than reject it -- accept the synonym, the stray kwarg, the slightly-off form, and steer from there.
+- **Minimize where we trust the model.** Let the model *guide* the flow, but hand the judgement of what it meant or what a result means to a separate model. This separation-of-goals lets each agent specialize (tool-calling vs. correctness) and keeps a weak model from poisoning the result by juggling too much (cf. [arXiv:2605.22763](https://arxiv.org/abs/2605.22763v1)).
 
 ### Flow of a query
 
@@ -161,43 +161,19 @@ flowchart TD
     GB -->|"yes"| V
 ```
 
-Routing is model-driven but harness-checked: the compile step is one constrained model call that picks the shape; deterministic guards then validate that choice (and trigger one recompile), and only a clean spec runs. Anything that doesn't fit falls through to the forgiving plan-and-execute. All three paths write the same truth ledger, so the final gate applies no matter which produced the number. The rest of this section unpacks each piece.
+*(Diagrams are [Mermaid](https://mermaid.js.org) blocks -- they render on GitHub and in editors with Mermaid support.)*
+
+Routing is model-driven but harness-checked: one constrained model call picks the shape, deterministic guards validate it (triggering at most one recompile), and only a clean spec runs; anything that doesn't fit falls through to the forgiving plan-and-execute. All three paths write the same truth ledger, so the final gate applies no matter which produced the number.
 
 Several of those steps -- `translate`, `compile`, and each `plan-and-execute` step -- begin with a deterministic **encyclopedia injection**: the harness matches the text against the glossary and inserts any matching entries (definition + recipe) into the model's prompt.
 
-```mermaid
-flowchart TD
-    subgraph EL["encyclopedia injection (no LLM)"]
-        direction TB
-        Q2["query"] --> SP["split into words"]
-        SP --> MK["match words to encyclopedia keys (+ synonyms)"]
-        MK --> D{"key length"}
-        D -->|"<= 2 words"| O["all words present, in order"]
-        D -->|"> 2 words"| AO["all words present, any order"]
-        O --> INJ["inject the matching entry with the most words"]
-        AO --> INJ
-    end
-```
-
-*(Diagrams are [Mermaid](https://mermaid.js.org) blocks -- they render on GitHub and in editors with Mermaid support.)*
-
-**The pipeline schema.** "fill pipeline schema" means the compile call emits one JSON object with seven always-present keys; the chosen shape is just which of them it fills:
-
-- `fits` -- does the query fit any shape at all?
-- `fetch` -- which polytopes to pull: `h11` (a number, a list for a sweep, or null for the whole database), `h21`, `limit` (per h11), `favorable`, `use_stored` (reuse a prior turn's id list).
-- `map` -- 1-3 named one-line Python expressions, each run once per fetched polytope to produce a column. The only free-text part of the spec.
-- `reduce` -- up to 4 aggregations over those columns, each `{name, op, of}`, where `op` is from a fixed set (mean / min / max / sum / count / argmax / argmin / ...).
-- `search` -- SHAPE B: a `condition`, an `objective` (largest_h11 / smallest_h11 / any), optional h11 bounds; else null.
-- `explain` -- SHAPE C: `kind` (concept / capability) plus up to 5 lookup `queries`; else null.
-- `plot` -- up to 4 figures (`kind` is one of scatter / histogram / line / bar, plus x / y / color / log flags); else null.
-
-The decoder's grammar guarantees the *form* (every key present, enums legal, lists bounded); the guards then check the *content*.
+**The pipeline schema.** The compile call emits one JSON object whose keys (`fetch` / `map` / `reduce` / `search` / `explain` / `plot`) define the chosen shape; the decoder's grammar guarantees the *form* (every key present, enums legal, lists bounded) and the guards then check the *content*. The full spec is in [`PROTOCOL.md`](cytools_agent/orchestrator/PROTOCOL.md).
 
 **The encyclopedia -- knowledge from source.** `cy_glossary` / `reference` map a domain term to a *source-derived* definition and the exact recipe to compute it with these tools. `reference()` is indexed: a table of contents over topic sections, with cross-references, so the model can browse rather than guess. Conceptual questions are answered from that text and from real CYTools docstrings -- never from the model's own memory. An admission gate (`eval/verify_glossary.py`) re-runs every recipe and checks the invariants on ~145 polytopes, to catch the encyclopedia drifting from the library it describes.
 
 **The truth ledger -- results from evidence.** Every curated tool call is recorded in a harness-written ledger: exact arguments and structured results, rows the model can read but never author. Answers cite the rows backing each number; a classifier marks every numeric claim row-backed, weaker stdout-backed, or unbacked; and computed data is audited against machine-checked identities (`cytools_agent/tools/invariants.py`) -- on a violation the harness *refuses* rather than guess. The same thinking extends to the data layer: the KS cache is a read-only trusted base no run can poison, plus a writable overlay for newly discovered polytopes.
 
-These two are **model-strength-independent** -- they help a frontier model as much as a small local one, because they replace exactly what no model can be trusted for. On top sits a third, more disposable layer: **permissive scaffolding** that lets a *weak* model actually drive -- a typed pipeline (fetch -> map -> reduce -> plot, or search) the harness executes deterministically, schema-constrained decoding so malformed replies cannot be sampled, and a forgiving plan-and-execute fallback. This is most of the line count and is what lets a weak local model make real progress on the hard plot corpus -- qwen3:8b goes from near-zero single-run to a usable fraction, and higher with self-consistency voting; it matters less as models improve.
+These two are **model-strength-independent** -- they help a frontier model as much as a small local one, replacing exactly what no model can be trusted for. On top sits a third, disposable layer: **permissive scaffolding** that lets a *weak* model actually drive -- a typed pipeline the harness executes deterministically, schema-constrained decoding so malformed replies cannot be sampled, and a forgiving plan-and-execute fallback. It is most of the code, and is what takes qwen3:8b from near-zero on the hard plot corpus to a usable fraction (higher with self-consistency voting); it matters less as models improve.
 
 Normal use needs none of the knobs below; `setup.sh` configures everything. The scaffolding pieces are flags, on by default, `=0` to disable:
 
