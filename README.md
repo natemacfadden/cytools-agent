@@ -212,4 +212,4 @@ Normal use needs none of the knobs below; `setup.sh` configures everything. The 
 | `CYTOOLS_RUN_TIMEOUT` | Wall-clock cap on one `run_python` call (default 150 s). |
 | `CYTOOLS_AGENT_KS_CACHE` / `CYTOOLS_AGENT_KS_BASE` | Opt-in (default off): the writable overlay and read-only trusted base of the persisted polytope cache. Dev feature; grows large. |
 
-The protocol between the PM, the engineer, and the check layers is documented in `cytools_agent/orchestrator/PROTOCOL.md`; the A/B record behind each design choice is in `scratch/AB_RESULTS.md`.
+The protocol between the PM, the engineer, and the check layers is documented in `cytools_agent/orchestrator/PROTOCOL.md`.
