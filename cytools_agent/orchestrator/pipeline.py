@@ -888,6 +888,33 @@ def _apply_singular_limit(spec, asked, log):
         log("[pipeline]", "singular reference -> limit=1")
 
 
+_EXPLICIT_COUNT_RE = re.compile(r"\bfirst\s+(\d+)\b|\b(\d+)\s+polytopes\b",
+                                re.I)
+
+
+def _apply_explicit_limit(spec, asked, log):
+    """An explicit cardinal count ('first 5', '20 polytopes'): compile
+    sometimes drops it, so the limit defaults to 10 and the answer counts the
+    wrong number. The asked count is authoritative -- set it (a positional ref
+    like 'the 5th' is _apply_select_index's job and is skipped here)."""
+    fc = spec.get("fetch") or {}
+    if (spec.get("search") or spec.get("explain") or fc.get("_census")
+            or fc.get("use_stored") or fc.get("_select") is not None):
+        return
+    m = _EXPLICIT_COUNT_RE.search(asked)
+    if not m:
+        return
+    n = int(m.group(1) or m.group(2))
+    h11 = fc.get("h11")
+    n_h11 = len(h11) if isinstance(h11, list) else 1
+    n = min(max(n, 1), max(1, 2000 // n_h11))   # respect the politeness cap
+    if fc.get("limit") == n:
+        return
+    fc["limit"] = n
+    fc.pop("_limit_note", None)
+    log("[pipeline]", f"explicit count -> limit={n}")
+
+
 def _apply_select_index(spec, asked, log):
     """Positional reference ('the second polytope', 'index 15'): record the
     0-based index on the fetch and ensure enough polytopes are fetched to reach
@@ -961,6 +988,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
         emit("pipeline", fits=False, reason=why, spec=spec)
         return None
     _apply_singular_limit(spec, asked, log)
+    _apply_explicit_limit(spec, asked, log)
     _apply_select_index(spec, asked, log)
     emit("pipeline", fits=True, spec=spec)
     log("[pipeline spec]", str(spec))
@@ -990,6 +1018,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
                 cheatsheet, context=context, raw=raw)
             if not _spec_issue(spec2, asked, direct):
                 _apply_singular_limit(spec2, asked, log)   # same as first spec
+                _apply_explicit_limit(spec2, asked, log)
                 _apply_select_index(spec2, asked, log)
                 emit("pipeline", fits=True, spec=spec2, retry=True)
                 return run_pipeline(spec2, evidence)
