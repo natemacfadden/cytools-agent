@@ -243,7 +243,7 @@ class ProjectManager:
             return True              # nothing to judge; do not block the walk
         work = "\n".join(
             f"- intent: {o.get('intent', '')}\n  code: {o.get('ran_code', '')}"
-            f"\n  output: {str(o.get('received_output', ''))[:160]}"
+            f"\n  output: {str(o.get('received_output') or o.get('result') or '')[:160]}"
             for o in observations[-4:])
         out = self._json(
             "Decide whether the engineer's WORK addresses the dispatched STEP. "
@@ -268,7 +268,7 @@ class ProjectManager:
             return True, ""
         work = "\n".join(
             f"- code: {o.get('ran_code', '')}\n  output: "
-            f"{str(o.get('received_output', ''))[:160]}"
+            f"{str(o.get('received_output') or o.get('result') or '')[:160]}"
             for o in observations[-4:])
         out = self._json(
             "The step had to PRODUCE this output: \"" + produce + "\". From the "
