@@ -41,7 +41,8 @@ import eval._env  # noqa: F401  (env pins; must precede cytools_agent imports)
 # local imports
 from cytools_agent.tools import code as _code
 from eval._harness import run
-from eval.grading import grade
+from eval.answer import FINAL_INSTRUCTION, grade_typed, parse_final
+from eval.emit import ensure_final
 
 CORPUS = os.path.join(os.path.dirname(__file__), "pm_corpus.jsonl")
 
@@ -74,11 +75,14 @@ def main():
             _code.reset_namespace()
             _code.reset_figures()
             t0 = time.monotonic()
-            ans = run(model, rows[i]["question"], timeout, raw=raw)
+            q = rows[i]["question"]
+            ans = ensure_final(
+                run(model, q + FINAL_INSTRUCTION, timeout, raw=raw), q, model)
             dt = round(time.monotonic() - t0, 1)
-            status = grade(ans, rows[i]["answer"])
+            status = grade_typed(ans, rows[i]["answer"])
             results.append({"id": i, "rep": rep, "kind": rows[i]["kind"],
                             "status": status, "secs": dt, "answer": ans,
+                            "final": parse_final(str(ans)),
                             "truth": rows[i]["answer"]})
             print(f"\n[{i}.{rep}] {rows[i]['kind']}  {status}  ({dt}s)",
                   flush=True)

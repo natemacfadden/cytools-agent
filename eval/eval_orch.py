@@ -16,15 +16,13 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Evaluation harness for the two-agent ORCHESTRATOR (Coordinator+executor)
-#               on the Coordinator corpus (eval/pm_corpus.jsonl). The orchestrator's
-#               deliverable is usually a figure plus a stated result, so this
-#               grades leniently with the SAME grader as the single-agent evals
-#               (does the corpus summary value appear in the Coordinator's final answer?)
-#               AND, more importantly, extracts per-run DIAGNOSTICS from the
-#               session log -- rounds, observations, step-limit hits, off-step
-#               drift, and repeated-step loops -- which is what surfaces harness
-#               friction.
+# Description:  Evaluation harness for the two-agent orchestrator (coordinator +
+#               executor) on the coordinator corpus (eval/pm_corpus.jsonl). Scores
+#               the orchestrator's typed <final> block with the same grader as the
+#               single-agent evals (eval/answer.py grade_typed) and, more
+#               importantly, extracts per-run diagnostics from the session log --
+#               rounds, observations, step-limit hits, off-step drift, and
+#               repeated-step loops -- which is what surfaces harness friction.
 #
 #     python -m eval.eval_orch [--ids 4,6,9] [--model qwen3:4b] [--timeout 600]
 #
@@ -43,8 +41,8 @@ import eval._env  # noqa: F401  (env pins; must precede cytools_agent imports)
 # local imports
 from cytools_agent.orchestrator import (run_session, run_session_voted,
                                         read_evidence, read_session)
-from cytools_agent.orchestrator.evidence import _prints_only_literals
-from eval.grading import grade, hit
+from eval.answer import grade_typed, parse_final
+from eval.emit import ensure_final
 
 
 CORPUS = os.path.join(os.path.dirname(__file__), "pm_corpus.jsonl")
@@ -84,20 +82,6 @@ def _diagnostics(session, evidence):
             "max_step_repeat": max_repeat, "n_tracebacks": n_err}
 
 
-def evidence_grade(truth, evidence):
-    """Grade against the harness-captured ground truth instead of the Coordinator's
-    prose: PASS iff the truth value appears in the received_output of an
-    observation whose code actually computed (not a typed literal). Immune to
-    the two observed prose-grader failure modes -- truth digits colliding with
-    jargon in the summary, and the Coordinator paraphrasing away the number."""
-    for o in evidence:
-        if _prints_only_literals(o.get("ran_code", "")):
-            continue
-        if hit(str(o.get("received_output", "")), truth, raw=True):
-            return "PASS"
-    return "FAIL"
-
-
 def run_one(row, model, timeout, votes=1):
     signal.alarm(timeout * votes)   # the budget covers every constituent run
     t0 = time.monotonic()
@@ -121,26 +105,26 @@ def run_one(row, model, timeout, votes=1):
     dt = time.monotonic() - t0
     ev = read_evidence()
     diag = _diagnostics(read_session(), ev)
-    # grade WITHOUT the voting annotations -- "(self-consistency: 2/2 ...)"
-    # injects digits that can collide with the truth (observed: truth 2
-    # false-passing via the "2/2")
-    graded_text = answer.split("(self-consistency")[0] \
-                        .split("(LOW CONFIDENCE")[0]
-    status = "TIMEOUT" if timed_out else grade(graded_text, row["answer"])
-    # honest bar: a run that did not finish (step limit / walk stopped) is not
-    # a PASS even if the truth digit happens to appear in the Coordinator's prose.
-    # NOT applied to voted runs: their diagnostics describe only the LAST
-    # constituent session, which may not be the one whose answer was chosen.
+    # typed grade of the <final> block. The block sits before any voting
+    # annotation ("(self-consistency ...)"/"(LOW CONFIDENCE ...)"), so stripping
+    # the annotation keeps it; backstop a missing block as the ladder does.
+    if timed_out:
+        status, final = "TIMEOUT", None
+    else:
+        graded_text = ensure_final(
+            answer.split("(self-consistency")[0].split("(LOW CONFIDENCE")[0],
+            row["question"], model)
+        final = parse_final(graded_text)
+        status = grade_typed(graded_text, row["answer"])
+    # honest bar: a run that did not finish (step limit / walk stopped) is not a
+    # PASS even if the truth value happens to appear. Not applied to voted runs:
+    # their diagnostics describe only the last constituent session, which may
+    # not be the one whose answer was chosen.
     if status == "PASS" and diag["step_failed"] and votes == 1:
         status = "FAIL"
-    # parallel evidence-based grade (truth must appear in a COMPUTED output);
-    # reported alongside prose status to measure grader disagreement
-    ev_status = "TIMEOUT" if timed_out else evidence_grade(row["answer"], ev)
-    if ev_status == "PASS" and diag["step_failed"] and votes == 1:
-        ev_status = "FAIL"
     return {"id": row["id"], "kind": row["kind"], "status": status,
-            "status_evidence": ev_status, "secs": round(dt, 1),
-            "answer": answer, "truth": row["answer"], **diag}
+            "secs": round(dt, 1), "answer": answer, "final": final,
+            "truth": row["answer"], **diag}
 
 
 def main():

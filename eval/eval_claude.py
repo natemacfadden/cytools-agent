@@ -41,6 +41,7 @@ import subprocess
 import sys
 
 # local imports
+from eval.emit import finalizing
 from eval.grading import run_sample, run_targeted, TIMED_OUT
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -91,11 +92,14 @@ def main():
         if "--timeout" in args else 300
     spent = [0.0]
 
-    def run_fn(q):
+    def _run(q):
         ans, cost = run_claude(q, model, timeout)
         spent[0] += cost
         return ans
 
+    # backstop off: the blind finalizer client is Ollama's and cannot reach a
+    # Claude model, so trust Claude's (reliable) self-emission of the block.
+    run_fn = finalizing(_run, model, backstop=False)
     header = f"claude:{model}"
     if "--ids" in args:
         ids = [int(x) for x in args[args.index("--ids") + 1].split(",")]

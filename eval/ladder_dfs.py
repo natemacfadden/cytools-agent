@@ -42,7 +42,7 @@ import time
 import eval._env  # noqa: F401  (env pins; must precede cytools_agent imports)
 
 # local imports  (after the env pin)
-from eval.grading import grade                                  # noqa: E402
+from eval.answer import grade_typed, parse_final                # noqa: E402
 from eval.system_ladder import (RUNGS, _run_isolated,           # noqa: E402
                                 _git_commit, OUT_DIR,
                                 DEFAULT_CORPUS)
@@ -121,10 +121,11 @@ def main():
             if q.get("kind") == "exploratory" or q.get("answer") is None:
                 status = "RUBRIC"
             else:
-                status = grade(ans, q["answer"])
+                status = grade_typed(ans, q["answer"])
             envs[rung]["results"].append(
                 {"id": qid, "rep": rep, "kind": q["kind"], "status": status,
-                 "secs": dt, "truth": q["answer"], "answer": str(ans)[:2000]})
+                 "secs": dt, "truth": q["answer"],
+                 "final": parse_final(str(ans)), "answer": str(ans)[:2000]})
             with open(paths[rung], "w") as f:
                 json.dump(envs[rung], f, indent=2)
             print(f"   {rung}: {status} ({dt}s)  "

@@ -124,9 +124,10 @@ def _list_match(val, truth):
 
 
 def grade_typed(ans, truth):
-    """The typed counterpart to grading.grade(): same ERROR/TIMEOUT quarantine,
-    but the PASS/FAIL decision is a deterministic typed check of the <final>
-    block instead of prose matching. A missing/unparseable block -> FAIL."""
+    """The grader for every eval arm. Quarantines ERROR (harness failure) and
+    TIMEOUT sentinels, then decides PASS/FAIL by a deterministic typed check of
+    the <final> block -- no prose matching, no regex. A missing/unparseable
+    block -> FAIL."""
     from eval.grading import TIMED_OUT
     if ans == TIMED_OUT:
         return "TIMEOUT"

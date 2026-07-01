@@ -16,11 +16,13 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Model-agnostic corpus grading + run loop, shared by eval.py
-#               (local Ollama agent) and eval_claude.py (headless Claude Code).
-#               A `run_fn(question) -> answer_text` is the only thing that
-#               differs between them, so both are scored by the SAME grader on
-#               the SAME corpus -- directly comparable.
+# Description:  Model-agnostic corpus run loop, shared by eval.py (local Ollama
+#               agent) and eval_claude.py (headless Claude Code). A
+#               `run_fn(question) -> answer_text` is the only thing that differs
+#               between them, so both are scored by the same typed grader
+#               (eval/answer.py grade_typed) on the same corpus -- directly
+#               comparable. The run_fn is expected to emit a <final> block (wrap
+#               it with eval.emit.finalizing); grading is pure code, no regex.
 #
 # All functions here are human-read (developer tooling).
 # -----------------------------------------------------------------------------
@@ -29,186 +31,11 @@
 import json
 import os
 import random
-import re
+
+# local imports
+from eval.answer import grade_typed   # the shared typed grader
 
 TIMED_OUT = "(timed out)"   # sentinel a run_fn returns when it times out
-
-
-# grader
-# ------
-def _flat(x):
-    if isinstance(x, (list, tuple)):
-        return [e for s in x for e in _flat(s)]
-    return [x]
-
-
-def _nums(text):
-    """Every number in the text, in order, rounded to 3 dp for comparison."""
-    return [round(float(x), 3) for x in re.findall(r"-?\d+(?:\.\d+)?", text)]
-
-
-# Digits that are part of CYTools jargon, NOT a stated result -- e.g. the "2" in
-# "2-face", the "11"/"4" in "h11=4", the "2" in "c2" or "(2,1)", the "3" in "K3".
-# Stripping these before number-matching stops a truth value from being credited
-# just because it collides with a domain term in the answer's prose.
-# Hodge label: h11, h21, h^1,1, h^{11}, h_{21}
-_HODGE_LABEL = r"h[\^_]?\{?\d+(?:\s*,\s*\d+)?\}?"
-# the remaining domain terms (one shared source for both denoise variants)
-_DOMAIN_REST = (
-    r"|\bc_?\{?\d+\}?"                                   # c2, c_2, c_{2}
-    r"|\d+-(?:face|faces|fold|folds|dimensional|cycle|cycles|form|forms|plane)"
-    r"|\(\s*-?\d+\s*,\s*-?\d+\s*\)"                      # (1,1), (2,1)
-    r"|\b[KP]\d+\b|\bZ_?\d+\b|\bCP\d+\b|\bSU\(\d+\)|\bE\d\b"  # K3, P1, Z2, CP3...
-    r"|\b\d+[dD]\b")                                     # 4d, 3D
-# default: the Hodge label ALSO consumes an =N spec (h11=4 -> blank), so a
-# question's FILTER digits can't be read as the answer.
-_DOMAIN_NOISE = re.compile(
-    _HODGE_LABEL + r"(?:\s*=\s*-?\d+)?" + _DOMAIN_REST, re.I)
-# keep-hodge-values variant: strip the Hodge LABEL but leave its =N value -- for
-# matching a Hodge-NUMBER answer ("h11=3 and h21=43"), where the values ARE the
-# result and the filter-guard strip would otherwise delete them.
-_DOMAIN_NOISE_KEEP_HODGE = re.compile(_HODGE_LABEL + _DOMAIN_REST, re.I)
-
-
-def _denoise(text, keep_hodge_values=False):
-    """Blank out domain-term digits so number-matching sees only real values.
-    keep_hodge_values: strip the Hodge label but KEEP its =N value (the list
-    matcher uses this so a Hodge-number pair answer isn't eaten)."""
-    rx = _DOMAIN_NOISE_KEEP_HODGE if keep_hodge_values else _DOMAIN_NOISE
-    return rx.sub(" ", text)
-
-
-def _bold_claims(text):
-    """Integers the answer COMMITS to via a bold span (**N**) -- the model's
-    stated answer. De-noised so a domain term's digits can't be read as the
-    claim. A wrong bold claim is a real miss, so hit() does NOT rescue it."""
-    text = _denoise(text)
-    out = []
-    for span in re.findall(r"\*\*(.+?)\*\*", text):
-        m = re.match(r"\s*(-?[\d,]+)\b", span)
-        if m:
-            out.append(m.group(1).replace(",", ""))
-    return out
-
-
-def _marker_claims(text):
-    """Integers after an 'answer/total/count' marker. WEAKER than a bold claim:
-    'a total of 244' can be a distractor (the total available) rather than the
-    asked quantity, so a non-matching marker must not veto a standalone truth.
-    word-boundaried so `count` doesn't match inside an identifier like
-    `face_count_2` (which grabbed the `2`, marking correct answers wrong)."""
-    text = _denoise(text)
-    return [m.group(1).replace(",", "") for m in
-            re.finditer(r"\b(?:answer|total|count)\b\D{0,12}?(-?\d[\d,]*)",
-                        text, re.I)]
-
-
-def _claimed_ints(text):
-    """All explicitly-claimed integers (bold + marker), combined -- kept for
-    external callers; hit() weighs bold vs marker separately (see below)."""
-    return _bold_claims(text) + _marker_claims(text)
-
-
-def hit(text, ans, raw=False):
-    """Does the ground-truth value appear in the answer text? raw=True is for
-    matching against tool OUTPUT rather than prose: the _claimed_ints shortcut
-    (which trusts "answer:/count:/**N**" markers) is skipped, since raw output
-    has no such rhetoric and the markers misfire on it."""
-    t = text.lower()
-    # Negative test: a question with no valid answer (truth == "IMPOSSIBLE").
-    # The model must attempt it and then report that it cannot be done -- pass
-    # iff the answer signals impossibility / non-convergence (and so withholds a
-    # fabricated result). Phrasing varies, so match any of several markers.
-    if isinstance(ans, str) and ans.strip().upper() == "IMPOSSIBLE":
-        return any(m in t for m in (
-            "could not", "cannot", "can't", "no solution", "no such",
-            "infeasible", "not feasible", "unrealizable", "impossible",
-            "does not converge", "did not converge", "doesn't converge",
-            "didn't converge", "fail to converge", "failed to converge",
-            "not converge", "no valid", "unable", "stalled", "no kähler",
-            "no kahler", "not found", "no polytope", "not completed",
-            "could not be", "none found", "no point"))
-    if isinstance(ans, bool):
-        return (bool(re.search(r"\byes\b|\btrue\b", t)) if ans
-                else bool(re.search(r"\bno\b|\bfalse\b|\bnot\b|non-", t)))
-    if isinstance(ans, int):
-        s = str(ans)
-        if not raw:
-            strong = _bold_claims(text)      # the model's committed (bold) answer
-            if s in strong:
-                return True
-            if strong:                       # committed to a DIFFERENT bold
-                return False                 # answer -> a genuine miss, no rescue
-            if s in _marker_claims(text):    # 'answer/total/count: N' == truth
-                return True
-        # No committed answer (or raw output): a non-matching weak marker must
-        # not veto a standalone statement of the truth. De-noise prose so domain
-        # digits don't count; raw output keeps tuples, so it is not de-noised.
-        return bool(re.search(rf"(?<!\d){re.escape(s)}(?!\d)",
-                              re.sub(r",", "", text if raw else _denoise(text))))
-    if isinstance(ans, float):
-        # tolerant numeric match: a computed float carries precision noise
-        # (e.g. 0.9999999999999987 for 1.0) that a literal-substring check on the
-        # rounded truth would miss. Compare VALUES within tolerance -- but only
-        # for DECIMAL tokens: a bare integer is usually incidental ("stretch 1"),
-        # and crediting it would let a refusal pass on a clean truth like 1.0.
-        tol = 1e-4 + 1e-4 * abs(ans)
-        for m in re.findall(r"-?\d+\.\d+", text):
-            try:
-                if abs(float(m) - ans) <= tol:
-                    return True
-            except ValueError:
-                pass
-        # fall back to the rounded-literal check (catches coarser roundings like
-        # "3.67" for 3.666667, and integer-written truths)
-        return any(f"{round(ans, d)}" in text for d in (1, 2, 3, 4, 6))
-    if isinstance(ans, (list, tuple)):
-        # treat a tuple rendering "(2, 7)" as identical to the list "[2, 7]":
-        # convert parenthesised number-groups to square brackets first, so the
-        # round-paren strip (an int-answer coordinate-notation guard inside
-        # _denoise) can't hide a list/tuple answer. Int answers keep that guard.
-        text = re.sub(r"\(\s*(-?\d+(?:\s*,\s*-?\d+)*)\s*\)", r"[\1]", text)
-        # exact list literal present (handles ordered / nested forms)
-        if re.sub(r"\s", "", str(ans)) in re.sub(r"\s", "", text):
-            return True
-        # a "list of entries" (e.g. [i,j,k,value] intersection rows, or Mori-cone
-        # rays): the ENTRY ORDER is arbitrary, but each entry must be intact (you
-        # can't permute within an entry). So require every entry to appear as its
-        # own bracketed/parenthesised group, in any order -- the brackets stop a
-        # match straddling two entries (which a flat multiset check would allow).
-        def _entry_list(a):
-            return (a and all(isinstance(e, (list, tuple)) and len(e) == len(a[0])
-                              and all(not isinstance(x, (list, tuple)) for x in e)
-                              for e in a))
-        if _entry_list(ans):
-            norm = re.sub(r"\s", "", text)
-            def _n(x):
-                x = round(float(x), 3)
-                return str(int(x)) if x == int(x) else str(x)
-            return all(("[" + ",".join(_n(x) for x in e) + "]") in norm
-                       or ("(" + ",".join(_n(x) for x in e) + ")") in norm
-                       for e in ans)
-        # else demand a CONTIGUOUS run of numbers whose multiset matches the
-        # whole answer -- so e.g. "12 simplices" can't satisfy a [1,...,2,...]
-        # truth just because the digits 1 and 2 appear somewhere
-        target = sorted(round(float(e), 3) for e in _flat(ans))
-        nums, w = (_nums(text if raw else _denoise(text, keep_hodge_values=True)),
-                   len(target))
-        return any(sorted(nums[i:i + w]) == target
-                   for i in range(len(nums) - w + 1))
-    return str(ans).lower() in t
-
-
-def grade(ans, truth):
-    """'TIMEOUT' (inconclusive), 'ERROR' (harness failure), 'PASS', or 'FAIL'."""
-    if ans == TIMED_OUT:
-        return "TIMEOUT"
-    # A worker that crashed returns "(error: ...)". Never number-match it: the
-    # exception text carries incidental digits (e.g. "NumPy 2.4") that hit()
-    # would read as the answer, scoring an infra failure as a spurious PASS.
-    if isinstance(ans, str) and ans.startswith("(error:"):
-        return "ERROR"
-    return "PASS" if hit(ans, truth) else "FAIL"
 
 
 # corpus + reporting
@@ -241,7 +68,7 @@ def run_sample(run_fn, header, k):
     npass = nfail = ntimeout = 0
     for i, r in enumerate(sample):
         ans = run_fn(r["question"])
-        status = grade(ans, r["answer"])
+        status = grade_typed(ans, r["answer"])
         npass += status == "PASS"
         nfail += status == "FAIL"
         ntimeout += status == "TIMEOUT"
@@ -262,7 +89,7 @@ def run_targeted(run_fn, header, ids, reps):
         results = []
         for _ in range(reps):
             ans = run_fn(r["question"])
-            status = grade(ans, r["answer"])
+            status = grade_typed(ans, r["answer"])
             results.append((status, ans))
             npass += status == "PASS"
             nfail += status == "FAIL"

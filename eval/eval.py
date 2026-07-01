@@ -33,6 +33,7 @@ import sys
 
 # local imports
 from eval._harness import run
+from eval.emit import finalizing
 from eval.grading import run_sample, run_targeted
 
 USAGE = ("usage: python -m eval.eval model [k] [timeout]\n"
@@ -54,11 +55,13 @@ def main():
         reps = int(rest[rest.index("--reps") + 1]) if "--reps" in rest else 3
         timeout = int(rest[rest.index("--timeout") + 1]) \
             if "--timeout" in rest else 600
-        run_targeted(lambda q: run(model, q, timeout), model, ids, reps)
+        run_fn = finalizing(lambda q: run(model, q, timeout), model)
+        run_targeted(run_fn, model, ids, reps)
     else:
         k = int(rest[0]) if rest else 12
         timeout = int(rest[1]) if len(rest) > 1 else 600
-        run_sample(lambda q: run(model, q, timeout), model, k)
+        run_fn = finalizing(lambda q: run(model, q, timeout), model)
+        run_sample(run_fn, model, k)
 
 
 if __name__ == "__main__":
