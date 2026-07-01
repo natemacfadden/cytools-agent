@@ -20,6 +20,7 @@ dependencies:
   - pip:
     - numpy<2.5  # also bind pip's resolver: a pip dep here floated numpy to 2.5 over conda's copy, breaking numba
     - ortools
+    - highspy==1.12.*  # must match ortools' bundled HiGHS (SONAME clash); mirrors cytools' own pin
     - mosek
     - triangulumancer
     - pplpy
