@@ -5,7 +5,7 @@ dependencies:
   # CYTools dependencies
   - python=3.12
   - numba
-  - numpy
+  - numpy<2.5  # numba 0.65 caps numpy at <2.5; unpinned, a rebuild floats to 2.5 and breaks the numba import
   - normaliz
   - scipy
   - cvxopt
@@ -18,6 +18,7 @@ dependencies:
   - pytest
   - pip
   - pip:
+    - numpy<2.5  # also bind pip's resolver: a pip dep here floated numpy to 2.5 over conda's copy, breaking numba
     - ortools
     - mosek
     - triangulumancer
