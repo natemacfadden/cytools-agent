@@ -78,25 +78,35 @@ def _denoise(text, keep_hodge_values=False):
     return rx.sub(" ", text)
 
 
-def _claimed_ints(text):
-    """Integers the answer explicitly states: leading number in a bold span,
-    or after an 'answer/total/count' marker. Avoids crediting echoed digits.
-    Operates on the DE-NOISED text so a domain term's digits (the 21 in
-    'the h21 value is 29') can never be read as the claim."""
+def _bold_claims(text):
+    """Integers the answer COMMITS to via a bold span (**N**) -- the model's
+    stated answer. De-noised so a domain term's digits can't be read as the
+    claim. A wrong bold claim is a real miss, so hit() does NOT rescue it."""
     text = _denoise(text)
-    claims = []
+    out = []
     for span in re.findall(r"\*\*(.+?)\*\*", text):
         m = re.match(r"\s*(-?[\d,]+)\b", span)
         if m:
-            claims.append(m.group(1).replace(",", ""))
-    # word-boundaried: the marker must be a standalone word, not a substring of
-    # an identifier -- the pipeline auto-names columns like `face_count_2`, and
-    # a bare `count` match there grabbed the `2` from `count_2` instead of the
-    # real answer, marking correct answers (e.g. 27) wrong.
-    for m in re.finditer(r"\b(?:answer|total|count)\b\D{0,12}?(-?\d[\d,]*)",
-                         text, re.I):
-        claims.append(m.group(1).replace(",", ""))
-    return claims
+            out.append(m.group(1).replace(",", ""))
+    return out
+
+
+def _marker_claims(text):
+    """Integers after an 'answer/total/count' marker. WEAKER than a bold claim:
+    'a total of 244' can be a distractor (the total available) rather than the
+    asked quantity, so a non-matching marker must not veto a standalone truth.
+    word-boundaried so `count` doesn't match inside an identifier like
+    `face_count_2` (which grabbed the `2`, marking correct answers wrong)."""
+    text = _denoise(text)
+    return [m.group(1).replace(",", "") for m in
+            re.finditer(r"\b(?:answer|total|count)\b\D{0,12}?(-?\d[\d,]*)",
+                        text, re.I)]
+
+
+def _claimed_ints(text):
+    """All explicitly-claimed integers (bold + marker), combined -- kept for
+    external callers; hit() weighs bold vs marker separately (see below)."""
+    return _bold_claims(text) + _marker_claims(text)
 
 
 def hit(text, ans, raw=False):
@@ -122,15 +132,20 @@ def hit(text, ans, raw=False):
         return (bool(re.search(r"\byes\b|\btrue\b", t)) if ans
                 else bool(re.search(r"\bno\b|\bfalse\b|\bnot\b|non-", t)))
     if isinstance(ans, int):
-        claims = None if raw else _claimed_ints(text)
-        if claims:                                  # explicit "answer: N"/**N**
-            return str(ans) in claims
-        # else: a standalone integer (not inside a longer number, and -- in
-        # prose -- not part of a domain term like 2-face / h11=4; raw tool
-        # output legitimately contains tuples, so it is not de-noised)
-        return bool(re.search(rf"(?<!\d){re.escape(str(ans))}(?!\d)",
-                              re.sub(r",", "", text if raw
-                                     else _denoise(text))))
+        s = str(ans)
+        if not raw:
+            strong = _bold_claims(text)      # the model's committed (bold) answer
+            if s in strong:
+                return True
+            if strong:                       # committed to a DIFFERENT bold
+                return False                 # answer -> a genuine miss, no rescue
+            if s in _marker_claims(text):    # 'answer/total/count: N' == truth
+                return True
+        # No committed answer (or raw output): a non-matching weak marker must
+        # not veto a standalone statement of the truth. De-noise prose so domain
+        # digits don't count; raw output keeps tuples, so it is not de-noised.
+        return bool(re.search(rf"(?<!\d){re.escape(s)}(?!\d)",
+                              re.sub(r",", "", text if raw else _denoise(text))))
     if isinstance(ans, float):
         # tolerant numeric match: a computed float carries precision noise
         # (e.g. 0.9999999999999987 for 1.0) that a literal-substring check on the
@@ -185,9 +200,14 @@ def hit(text, ans, raw=False):
 
 
 def grade(ans, truth):
-    """'TIMEOUT' (inconclusive), 'PASS', or 'FAIL'."""
+    """'TIMEOUT' (inconclusive), 'ERROR' (harness failure), 'PASS', or 'FAIL'."""
     if ans == TIMED_OUT:
         return "TIMEOUT"
+    # A worker that crashed returns "(error: ...)". Never number-match it: the
+    # exception text carries incidental digits (e.g. "NumPy 2.4") that hit()
+    # would read as the answer, scoring an infra failure as a spurious PASS.
+    if isinstance(ans, str) and ans.startswith("(error:"):
+        return "ERROR"
     return "PASS" if hit(ans, truth) else "FAIL"
 
 
