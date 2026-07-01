@@ -16,8 +16,8 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  The PM corpus: BIG, multi-step research problems for the
-#               orchestrator's project manager -- each spans many polytopes,
+# Description:  The Coordinator corpus: BIG, multi-step research problems for the
+#               orchestrator's coordinator -- each spans many polytopes,
 #               a per-item computation, and an aggregate/plot deliverable, so it
 #               exercises planning + decomposition (not a single tool call).
 #
@@ -210,7 +210,7 @@ def build(timeout=1200, only=None):
             except subprocess.TimeoutExpired:
                 print(f"[{i}] {kind}: TIMEOUT (>{timeout}s)", flush=True)
         rows.append({"id": i, "question": q, "answer": ans, "kind": kind,
-                     "code": code, "source": "hand-authored", "agent": "pm"})
+                     "code": code, "source": "hand-authored", "agent": "coordinator"})
     with open(CORPUS, "w") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")

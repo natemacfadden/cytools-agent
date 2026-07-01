@@ -16,13 +16,13 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  The project manager: turn the user's request into a plan, then
-#               WORK DOWN THE LIST -- dispatch each plan step to the engineer
+# Description:  The coordinator: turn the user's request into a plan, then
+#               WORK DOWN THE LIST -- dispatch each plan step to the executor
 #               in order (the plan is the routing; this is what prevents the
 #               looping/dribbling a free-choice loop caused). A step that does
 #               not finish is retried once, then the walk stops rather than
 #               plowing into dependent steps. run_session is the conductor.
-#               PM_SYSTEM is model-read; the rest is human-read.
+#               COORDINATOR_SYSTEM is model-read; the rest is human-read.
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -33,9 +33,9 @@ import time
 # local imports
 from cytools_agent.tools import code as _code
 from cytools_agent.tools.glossary import glossary_context
-from cytools_agent.orchestrator.engineer import (SCHEMA_ACT, TOOL_CHEATSHEET,
+from cytools_agent.orchestrator.executor import (SCHEMA_ACT, TOOL_CHEATSHEET,
                                                  _ollama_chat,
-                                                 _parse_json, run_engineer)
+                                                 _parse_json, run_executor)
 
 # A/B (rides CYTOOLS_SCHEMA_ACT): grammar-constrained plan -- the decoder
 # guarantees 2-5 {do, produce} steps, ending the coerce-and-retry dance.
@@ -58,12 +58,12 @@ from cytools_agent.orchestrator.evidence import (backing, emit, grounded,
 from cytools_agent.orchestrator.pipeline import PIPELINE, try_pipeline
 
 # model-read
-PM_SYSTEM = (
-    "You are a project manager directing one engineer who can run Python and "
+COORDINATOR_SYSTEM = (
+    "You are a coordinator directing one executor who can run Python and "
     "call CYTools tools. You never run code yourself. You read a shared "
-    "EVIDENCE log of what the engineer has actually run: trust ran_code and "
+    "EVIDENCE log of what the executor has actually run: trust ran_code and "
     "received_output as ground truth, and treat intent/interpretation as the "
-    "engineer's claims. Never state a number that does not appear in some "
+    "executor's claims. Never state a number that does not appear in some "
     "received_output. Be concise and concrete. Write only in English."
 )
 
@@ -113,7 +113,7 @@ def _ensure_deliverable(direct, todo):
 def _force_two_steps():
     """Last-resort >=2-step plan when the model refuses to decompose: a compute
     step and a deliverable step -- CLEAN and generic, never embedding the raw
-    (possibly garbled) restatement -- so the engineer never faces the whole task
+    (possibly garbled) restatement -- so the executor never faces the whole task
     at once and never reads a verbose blob."""
     return [
         {"do": "compute the values the deliverable needs",
@@ -138,7 +138,7 @@ def _produce_met(step, observations):
     return True, ""
 
 
-class ProjectManager:
+class Coordinator:
     """Restate the request, plan it, and write the final answer. Each method is
     a single stateless JSON call (think is per-call: planning reasons, the rest
     does not)."""
@@ -148,11 +148,11 @@ class ProjectManager:
         self.think = think             # routing CoT; off is ~40x faster
         self.plan_think = plan_think   # decomposition needs reasoning
 
-    def _json(self, instruction, user, think=None, label="PM", schema=None):
+    def _json(self, instruction, user, think=None, label="Coordinator", schema=None):
         th = self.think if think is None else think
         msg = _ollama_chat(
             self.model,
-            [{"role": "system", "content": PM_SYSTEM + " " + instruction},
+            [{"role": "system", "content": COORDINATOR_SYSTEM + " " + instruction},
              {"role": "user", "content": user}], th,
             as_json=schema or True, label=label)
         return _parse_json(msg.get("content"))
@@ -170,7 +170,7 @@ class ProjectManager:
             user_message_in = user_message
         instr = (
             "Restate the user's request in plainer, more direct words an "
-            "engineer can act on, in AT MOST 3 sentences. Only RESTATE it: do "
+            "executor can act on, in AT MOST 3 sentences. Only RESTATE it: do "
             "NOT solve it, reason step by step, write code, or choose function "
             "arguments. If it uses specialized terms, briefly unpack each in "
             "plain words USING the glossary below -- do not invent meanings or "
@@ -178,7 +178,7 @@ class ProjectManager:
             "ranges or limits ('each h21' means every h21 that occurs, not a "
             'made-up range). Reply as JSON {"direct_speech": "..."}.')
         out = self._json(instr + ("\n\n" + gloss if gloss else ""),
-                         user_message_in, label="PM.translate")
+                         user_message_in, label="Coordinator.translate")
         direct = out.get("direct_speech", "")
         # a runaway restatement (the model reasoning in-content instead of just
         # restating) is long and poisons planning -- fall back to the request
@@ -219,7 +219,7 @@ class ProjectManager:
         todo = []
         for _ in range(3):     # reject incomplete / single-step plans; retry
             raw = self._json(instruction, direct_speech,
-                             think=self.plan_think, label="PM.plan",
+                             think=self.plan_think, label="Coordinator.plan",
                              schema=_PLAN_FORMAT if SCHEMA_ACT else None
                              ).get("todo")
             todo = _coerce_steps(raw)
@@ -231,7 +231,7 @@ class ProjectManager:
         return _ensure_deliverable(direct_speech, todo)
 
     def addresses(self, step, observations):
-        """Per-step coherence gate, judged from the engineer's actual WORK
+        """Per-step coherence gate, judged from the executor's actual WORK
         (intents + code + output), NOT the surface form of the final answer --
         so a correct result that is just a raw numeric structure (e.g. a list
         of vectors) is not misread as off-step. Lenient by design: it gates
@@ -246,15 +246,15 @@ class ProjectManager:
             f"\n  output: {str(o.get('received_output') or o.get('result') or '')[:160]}"
             for o in observations[-4:])
         out = self._json(
-            "Decide whether the engineer's WORK addresses the dispatched STEP. "
+            "Decide whether the executor's WORK addresses the dispatched STEP. "
             "Judge by what the code and intent actually DID, not the surface "
             "form of the output (a bare list or array of numbers can be a "
             "correct result). Answer false ONLY if the work clearly performs "
             "a DIFFERENT step or computes a clearly "
             'unrelated quantity; when in doubt, true. Reply JSON '
             '{"addresses": true|false}.',
-            f"STEP:\n{_step_text(step)}\n\nENGINEER WORK:\n{work}", think=False,
-            label="PM.addresses")
+            f"STEP:\n{_step_text(step)}\n\nEXECUTOR WORK:\n{work}", think=False,
+            label="Coordinator.addresses")
         return bool(out.get("addresses", True))
 
     def verify_produce(self, step, observations):
@@ -272,14 +272,14 @@ class ProjectManager:
             for o in observations[-4:])
         out = self._json(
             "The step had to PRODUCE this output: \"" + produce + "\". From the "
-            "engineer's code+outputs, did it actually produce THAT -- the right "
+            "executor's code+outputs, did it actually produce THAT -- the right "
             "TYPE and SHAPE? Answer false ONLY for a clear type/shape mismatch "
             "(e.g. a single number when a list with one value per item was "
             "required, or a missing collection); cosmetic differences are fine "
             "and when in doubt answer true. Reply JSON {\"produced\": "
             "true|false, \"issue\": \"<the mismatch, else empty>\"}.",
-            f"REQUIRED OUTPUT: {produce}\n\nENGINEER WORK:\n{work}",
-            think=False, label="PM.verify_produce")
+            f"REQUIRED OUTPUT: {produce}\n\nEXECUTOR WORK:\n{work}",
+            think=False, label="Coordinator.verify_produce")
         return bool(out.get("produced", True)), str(out.get("issue") or "").strip()
 
     def summarize(self, direct_speech, evidence, completed=True, missing=""):
@@ -300,7 +300,7 @@ class ProjectManager:
             "result for their request (actual numbers; if a plot/file was "
             "saved, give its path). Be brief and invent nothing." + note +
             ' Reply as JSON {"message": "..."}.',
-            f"Request:\n{direct_speech}\n\n{evidence}", label="PM.summarize")
+            f"Request:\n{direct_speech}\n\n{evidence}", label="Coordinator.summarize")
         return out.get("message") or "(done)"
 
     def verify_answer(self, question, answer):
@@ -314,12 +314,12 @@ class ProjectManager:
             "Reply JSON {\"complete\": true|false, \"missing\": \"<the "
             "deliverable(s) not provided, else empty>\"}.",
             f"REQUEST:\n{question}\n\nANSWER:\n{answer}", think=False,
-            label="PM.verify")
+            label="Coordinator.verify")
         return bool(out.get("complete", True)), str(out.get("missing") or "").strip()
 
 
 class OrchestratorChat:
-    """Stateful multi-turn orchestrator. Each .chat() runs a full PM+engineer
+    """Stateful multi-turn orchestrator. Each .chat() runs a full Coordinator+executor
     session, but the run_python scratchpad PERSISTS across turns -- the id
     lists and columns one turn stores stay usable -- and each turn's
     translate/compile sees a context block with the recent turns and the
@@ -358,7 +358,7 @@ class OrchestratorChat:
         return "\n".join(lines)
 
     def chat(self, question):
-        """One conversational turn; returns the PM's answer."""
+        """One conversational turn; returns the Coordinator's answer."""
         answer = run_session(question, model=self.model,
                              reset=not self.turns, context=self._context(),
                              **self.session_kw)
@@ -431,10 +431,10 @@ def run_session_voted(user_message, votes=3, agree=2, **kw):
 # the session loop -- the conductor
 # ---------------------------------
 def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
-                pm_think=False, plan_think=True, eng_think=False,
+                coordinator_think=False, plan_think=True, exec_think=False,
                 reset=True, context="", max_seconds=900):
-    """Run one PM+engineer session and return the PM's reply. The PM plans,
-    then WORKS DOWN THE LIST: each plan step is dispatched to the engineer in
+    """Run one Coordinator+executor session and return the Coordinator's reply. The Coordinator plans,
+    then WORKS DOWN THE LIST: each plan step is dispatched to the executor in
     order (no free re-choosing, which previously dribbled/looped). A step that
     does not finish is retried once, then the walk stops. Evidence and progress
     stream to scratch/ live, and the whole session is archived at the end.
@@ -468,11 +468,11 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
     # prompts are reconstructible (CYTOOLS_EXAMPLE_SEED reproduces a draw)
     from cytools_agent.tools._examples import EXAMPLE_CHOICES
     emit("examples", choices={k: v[0] for k, v in EXAMPLE_CHOICES.items()})
-    pm = ProjectManager(model, think=pm_think, plan_think=plan_think)
+    coordinator = Coordinator(model, think=coordinator_think, plan_think=plan_think)
     evidence = []   # cumulative across rounds; streamed to the file live
 
     # the evidence backbone: every curated-tool call this session makes
-    # (pipeline stages, engineer code, anything) streams its harness-written
+    # (pipeline stages, executor code, anything) streams its harness-written
     # ledger row into the same evidence log, as kind="tool_call" rows that
     # no model authors
     from cytools_agent.tools import ledger
@@ -483,9 +483,9 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
         write_evidence(evidence)
     ledger.set_sink(_sink)
 
-    emit("active", who="PM", phase="translating the request")
-    direct = pm.translate(user_message, context=context)
-    log("[PM direct speech]", direct)
+    emit("active", who="coordinator", phase="translating the request")
+    direct = coordinator.translate(user_message, context=context)
+    log("[Coordinator direct speech]", direct)
     emit("direct_speech", text=direct)
 
     # fast path: the typed pipeline (fetch -> map -> reduce -> plot). The
@@ -493,12 +493,12 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
     # composes the answer from computed values. Any misfit falls through to
     # the normal plan-and-walk below.
     if PIPELINE:
-        emit("active", who="PM", phase="compiling the pipeline")
-        ans = try_pipeline(pm, direct, evidence, TOOL_CHEATSHEET, log,
+        emit("active", who="coordinator", phase="compiling the pipeline")
+        ans = try_pipeline(coordinator, direct, evidence, TOOL_CHEATSHEET, log,
                            context=context, raw=user_message)
         if ans is not None:
             write_evidence(evidence)
-            complete, missing = pm.verify_answer(user_message, ans)
+            complete, missing = coordinator.verify_answer(user_message, ans)
             # the LLM verifier often misses that "[saved N figure(s)]" IS the
             # plot deliverable (the marker is harness-written, unfakable) --
             # don't annotate a plot complaint onto an answer that has it
@@ -507,7 +507,7 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
                 complete, missing = True, ""
             if not complete and missing:
                 ans += f"\n\n(verification -- possibly incomplete: {missing})"
-            log("[PM -> user (pipeline)]", ans)
+            log("[Coordinator -> user (pipeline)]", ans)
             emit("respond", message=ans)
             emit("active", who="none", phase="done")
             log("[log saved]", save_log(user_message, ans, stamp))
@@ -516,9 +516,9 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
                 ans += "\n" + final_block(*fk)
             return ans
 
-    emit("active", who="PM", phase="planning")
-    todo = pm.plan(direct)
-    log("[PM plan]", json.dumps(todo, indent=2))
+    emit("active", who="coordinator", phase="planning")
+    todo = coordinator.plan(direct)
+    log("[Coordinator plan]", json.dumps(todo, indent=2))
     emit("plan", todo=[_step_text(s) for s in todo])
 
     rnd = [0]
@@ -543,7 +543,7 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
             ev = render_evidence(last=6)
         # STANDARDIZED dispatch: a fixed form built from the SELF-CONTAINED
         # structured step (DO / PRODUCE). No overall GOAL -- showing the whole
-        # question made the engineer overshoot the step (solve everything, then
+        # question made the executor overshoot the step (solve everything, then
         # get flagged off-step) and just added text; the {do, produce} step
         # carries what this step needs.
         prompt = (f"{TOOL_CHEATSHEET}\n\n{ev}\n\n"
@@ -552,7 +552,7 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
                   f"STEP {idx}/{n_steps} -- DO: {do}"
                   + (f"\nPRODUCE: {produce}" if produce else "")
                   + (f"\n\n{gloss}" if gloss else ""))
-        emit("active", who="engineer", phase="working", round=rnd[0])
+        emit("active", who="executor", phase="working", round=rnd[0])
         n_before = len(evidence)
         # cap each run_python this step issues to the session budget remaining,
         # so a single long call cannot overrun the deadline and get hard-killed
@@ -560,14 +560,14 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
         # never leaks to clamp unrelated run_python calls (e.g. the MCP server).
         _code.set_deadline(deadline)
         try:
-            report, n_new, ok = run_engineer(
-                model, evidence, rnd[0], prompt, think=eng_think,
+            report, n_new, ok = run_executor(
+                model, evidence, rnd[0], prompt, think=exec_think,
                 deadline=deadline)
         finally:
             _code.set_deadline(None)
         new_obs = evidence[n_before:]      # this dispatch's observations
-        log("[engineer report]", report)
-        emit("engineer_report", round=rnd[0], report=report, n_obs=n_new, ok=ok)
+        log("[executor report]", report)
+        emit("executor_report", round=rnd[0], report=report, n_obs=n_new, ok=ok)
         return ok, report, new_obs
 
     # work down the list, in order. A step that hits its limit OR drifts off
@@ -591,15 +591,15 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
                      reason=reason)
                 ok, why = False, reason
             else:
-                produced, issue = pm.verify_produce(step, new_obs)  # VERIFY #2
+                produced, issue = coordinator.verify_produce(step, new_obs)  # VERIFY #2
                 if not produced:                          # wrong type/shape
                     log("[produce mismatch]", issue)
                     emit("produce_mismatch", round=rnd[0], step=_step_text(step),
                          issue=issue)
                     ok, why = False, (issue or "the output had the wrong "
                                       "type/shape for what the step required")
-                elif not pm.addresses(step, new_obs):    # finished but off-step
-                    log("[off-step: engineer work did not address the step]",
+                elif not coordinator.addresses(step, new_obs):    # finished but off-step
+                    log("[off-step: executor work did not address the step]",
                         report)
                     emit("off_step", round=rnd[0], step=_step_text(step),
                          report=report)
@@ -617,7 +617,7 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
             ok, _, retry_obs = dispatch(corr, idx)
             if ok and not _produce_met(step, retry_obs)[0]:   # re-verify produce
                 ok = False
-            elif ok and not pm.verify_produce(step, retry_obs)[0]:  # re-verify #2
+            elif ok and not coordinator.verify_produce(step, retry_obs)[0]:  # re-verify #2
                 ok = False
         if not ok:
             log("[walk stopped: step failed twice]", _step_text(step))
@@ -625,8 +625,8 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
             completed = False
             break
 
-    emit("active", who="PM", phase="composing the final answer")
-    msg = pm.summarize(direct, render_evidence(), completed)
+    emit("active", who="coordinator", phase="composing the final answer")
+    msg = coordinator.summarize(direct, render_evidence(), completed)
     # the model sometimes returns an empty/non-JSON compose reply though the
     # value was already computed and grounded -- surface it deterministically
     # instead of the contentless "(done)" fallback (no load on the weak model).
@@ -638,17 +638,17 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
             msg = recovered
     # VERIFY #3: cross-check the answer against the ORIGINAL request -- flag
     # honestly if a requested deliverable is missing rather than papering over it
-    emit("active", who="PM", phase="verifying the answer")
-    complete, missing = pm.verify_answer(user_message, msg)
+    emit("active", who="coordinator", phase="verifying the answer")
+    complete, missing = coordinator.verify_answer(user_message, msg)
     if not complete and missing:
         # close the loop: verify_answer FOUND the gap, so redraft once with
         # the missing deliverable named (the number is usually sitting in the
         # evidence; the first draft just dropped it) -- then re-verify
         log("[verify: possibly incomplete -- redrafting]", missing)
         emit("verify", complete=False, missing=missing, redraft=True)
-        redraft = pm.summarize(direct, render_evidence(), completed,
+        redraft = coordinator.summarize(direct, render_evidence(), completed,
                                missing=missing)
-        complete2, _ = pm.verify_answer(user_message, redraft)
+        complete2, _ = coordinator.verify_answer(user_message, redraft)
         if complete2:
             msg = redraft
         else:
@@ -677,7 +677,7 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
     if label == "unbacked":
         log("[unbacked numbers -- redrafting from evidence]", "")
         emit("verify", complete=False, missing="unbacked numbers", redraft=True)
-        redraft = pm.summarize(
+        redraft = coordinator.summarize(
             direct, render_evidence(), completed,
             missing="every number in your draft appears in NO computed output. "
                     "Use ONLY numbers that appear in the evidence outputs; if "
@@ -698,7 +698,7 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
     elif label == "unbacked":
         msg += ("\n\n(evidence: contains numbers NOT found in any captured "
                 "output -- do not trust them)")
-    log("[PM -> user]", msg)
+    log("[Coordinator -> user]", msg)
     emit("respond", message=msg)
     emit("active", who="none", phase="done")
     log("[log saved]", save_log(user_message, msg, stamp))

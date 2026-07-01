@@ -1,6 +1,6 @@
 # =============================================================================
 #    Copyright (C) 2026  Nate MacFadden for the Liam McAllister Group
-#    (GPL-3.0-or-later; see project_manager.py header.)
+#    (GPL-3.0-or-later; see coordinator.py header.)
 # =============================================================================
 #
 # Session-scoped capture of the orchestrator's TYPED committed answer. The

@@ -17,8 +17,8 @@
 #
 # -----------------------------------------------------------------------------
 # Description:  Two-agent orchestration, split by concern:
-#                 project_manager.py -- plan + work down the list + summarize
-#                 engineer.py        -- the act-protocol task implementer
+#                 coordinator.py -- plan + work down the list + summarize
+#                 executor.py        -- the act-protocol task implementer
 #                 evidence.py        -- read outputs, guarantee their accuracy
 #               This package re-exports the public surface.
 # -----------------------------------------------------------------------------
@@ -27,12 +27,12 @@ from cytools_agent.orchestrator.evidence import (EVIDENCE_PATH, LOG_DIR,
                                                  SESSION_PATH, export_script,
                                                  read_evidence, read_session,
                                                  render_evidence)
-from cytools_agent.orchestrator.project_manager import (OrchestratorChat,
-                                                        ProjectManager,
+from cytools_agent.orchestrator.coordinator import (OrchestratorChat,
+                                                        Coordinator,
                                                         run_session,
                                                         run_session_voted)
 
 __all__ = ["run_session", "run_session_voted", "OrchestratorChat",
-           "ProjectManager", "EVIDENCE_PATH", "SESSION_PATH", "LOG_DIR",
+           "Coordinator", "EVIDENCE_PATH", "SESSION_PATH", "LOG_DIR",
            "export_script", "read_evidence", "read_session",
            "render_evidence"]

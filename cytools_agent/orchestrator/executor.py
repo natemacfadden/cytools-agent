@@ -16,13 +16,13 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  The engineer: it implements one dispatched task by repeatedly
+# Description:  The executor: it implements one dispatched task by repeatedly
 #               calling a single `act` tool (intent + code, plus a reflection
 #               on the previous output). `act` is a protocol, not a function --
-#               run_engineer is its interpreter: it runs the code, records the
+#               run_executor is its interpreter: it runs the code, records the
 #               observation (ran_code/received_output are harness-captured),
 #               and feeds the output back. This module also hosts the shared
-#               native-Ollama transport used by the PM.
+#               native-Ollama transport used by the Coordinator.
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -42,10 +42,10 @@ from cytools_agent.orchestrator.evidence import (emit, grounded, valid_python,
 OLLAMA_BASE = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 
-# model-read: the engineer's instructions, the API it may call, and its tool
+# model-read: the executor's instructions, the API it may call, and its tool
 # ---------------------------------------------------------------------------
-ENGINEER_SYSTEM = (
-    "You are the engineer for a project manager. Solve the dispatched task by "
+EXECUTOR_SYSTEM = (
+    "You are the executor for a coordinator. Solve the dispatched task by "
     "calling the `act` tool one step at a time (its fields are described on "
     "the tool); never answer in plain text and never finish without having "
     "run code. The run_python namespace is a persistent SCRATCHPAD -- assign "
@@ -67,7 +67,7 @@ ENGINEER_SYSTEM = (
     "not see in an output. Write only in English."
 )
 
-# the API the engineer calls -- given so it does not GUESS signatures
+# the API the executor calls -- given so it does not GUESS signatures
 TOOL_CHEATSHEET = (
     "Callable signatures (do not guess these):\n"
     "  fetch_polytopes(limit, h11, h21=None, favorable=None) -> list of ids "
@@ -105,7 +105,7 @@ TOOL_CHEATSHEET = (
 
 
 # A/B (CYTOOLS_MAP_TOOLS): harness-side iteration + plotting. The cheatsheet
-# must advertise them or the engineer cannot know they exist. (Defined AFTER
+# must advertise them or the executor cannot know they exist. (Defined AFTER
 # both cheatsheets -- this block appends to them.) The worked example's field
 # is SAMPLED per process (see tools/_examples.py) so no single field becomes
 # an attractor the model drifts into on novel questions.
@@ -144,7 +144,7 @@ if MAP_TOOLS_ENABLED:
 # Anthropic tool use) keeps the tool-call path; the act protocol is the same.
 # maxLength is ENFORCED by Ollama's format grammar (verified), so it bounds the
 # output at the decoder -- not a hint. This caps the runaway rambles: a confused
-# engineer was emitting ~6k-char acts (no runnable code) that took ~80s each AND
+# executor was emitting ~6k-char acts (no runnable code) that took ~80s each AND
 # bloated the next prompt to 24k chars. Steps here are meant to be SMALL (compute
 # less per call), so these caps fit legit acts while killing the ramble.
 ACT_FORMAT = {
@@ -159,7 +159,7 @@ ACT_FORMAT = {
     "required": ["intent", "code", "done"],
 }
 
-ENGINEER_SYSTEM_SCHEMA_NOTE = (
+EXECUTOR_SYSTEM_SCHEMA_NOTE = (
     " Reply with EXACTLY ONE JSON act object per turn -- fields: reflection "
     "(interpretation of the previous output; empty first), intent (what this "
     "step does and why), code (Python to run now; empty string if only "
@@ -167,7 +167,7 @@ ENGINEER_SYSTEM_SCHEMA_NOTE = (
     "result; set when done)."
 )
 
-# the engineer's one tool; hand-written so no dummy function is needed
+# the executor's one tool; hand-written so no dummy function is needed
 _ACT_SCHEMA = {
     "type": "function",
     "function": {
@@ -200,7 +200,7 @@ _ACT_SCHEMA = {
 }
 
 
-# native-Ollama transport (shared with the PM)
+# native-Ollama transport (shared with the Coordinator)
 # ---------------------------------------------
 def _ollama_chat(model, messages, think, tools=None, as_json=False, label=""):
     """One chat turn via Ollama's NATIVE /api/chat, which (unlike the
@@ -218,7 +218,7 @@ def _ollama_chat(model, messages, think, tools=None, as_json=False, label=""):
     # Ollama's vram-based default num_ctx (4096 here) SILENTLY truncates long
     # prompts from the front -- measured: an 8k-token chat returned
     # prompt_eval_count=4096 and the model lost the SYSTEM prompt. Late
-    # engineer steps overflow 4096, so the act protocol itself falls out of
+    # executor steps overflow 4096, so the act protocol itself falls out of
     # context. Default raised to 16384 (A/B-validated: removed all 600s
     # grinds); override with CYTOOLS_NUM_CTX, 0 to use the server default.
     num_ctx = int(os.environ.get("CYTOOLS_NUM_CTX", "16384") or 0)
@@ -293,7 +293,7 @@ def _parse_json(text):
 
 
 # A/B (CYTOOLS_FINISH_FORGIVE): accept the finish signal where the model
-# actually puts it. Observed (qwen3:8b): the engineer completes a step, then
+# actually puts it. Observed (qwen3:8b): the executor completes a step, then
 # writes `answer = <result>` / `done = True` as PYTHON VARIABLES instead of
 # act-tool fields -- the same protocol-vs-scratchpad conflation as the fixed
 # run_python['done']=True illusion -- and the round dies at the step limit.
@@ -321,7 +321,7 @@ def _scratchpad_finish():
 # the act-protocol interpreter
 # ----------------------------
 def _scratchpad_run_python(code):
-    """run_python with the live scratchpad contents appended, so the engineer
+    """run_python with the live scratchpad contents appended, so the executor
     always sees what it has accumulated."""
     return (_code.run_python(code)
             + f"\n[scratchpad now holds: {_code.namespace_summary()}]")
@@ -337,15 +337,15 @@ def _act_args(msg):
     return fb["arguments"] if fb and "arguments" in fb else None
 
 
-def run_engineer(model, evidence, round_no, prompt, max_steps=14,
+def run_executor(model, evidence, round_no, prompt, max_steps=14,
                  think=False, deadline=None):
-    """Run the engineer to completion, streaming observations into `evidence`.
+    """Run the executor to completion, streaming observations into `evidence`.
     Each coding step is one observation (ran_code/received_output captured from
     the real run; a non-empty intent is required; a finishing answer is
     rejected unless it appears in a real COMPUTED output). Returns
     (report, n_new_observations, ok) -- ok is False if it hit the step limit
     without finishing."""
-    system = ENGINEER_SYSTEM + (ENGINEER_SYSTEM_SCHEMA_NOTE if SCHEMA_ACT
+    system = EXECUTOR_SYSTEM + (EXECUTOR_SYSTEM_SCHEMA_NOTE if SCHEMA_ACT
                                 else "")
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": prompt}]
@@ -367,7 +367,7 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14,
         evidence.append(obs)
         pending["o"] = obs
         write_evidence(evidence)
-        emit("active", who="engineer", phase="working",   # heartbeat per step
+        emit("active", who="executor", phase="working",   # heartbeat per step
              round=round_no, step=len(evidence) - n0)
 
     def interpret(text):
@@ -383,7 +383,7 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14,
                              "content": out})
 
     def finish(report, ok):
-        emit("engineer_timing", round=round_no, llm_calls=n_llm[0],
+        emit("executor_timing", round=round_no, llm_calls=n_llm[0],
              llm_s=round(t_llm[0], 1), code_s=round(t_code[0], 1),
              obs=len(evidence) - n0, ok=ok)
         return report, len(evidence) - n0, ok
@@ -408,10 +408,10 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14,
             # the reply IS the act object, guaranteed schema-valid by the
             # decoding grammar -- no tool indirection, no recovery path
             msg = _ollama_chat(model, messages, think, as_json=ACT_FORMAT,
-                               label=f"engineer.r{round_no}")
+                               label=f"executor.r{round_no}")
         else:
             msg = _ollama_chat(model, messages, think, tools=[_ACT_SCHEMA],
-                               label=f"engineer.r{round_no}")
+                               label=f"executor.r{round_no}")
         t_llm[0] += time.monotonic() - _t
         n_llm[0] += 1
         messages.append(msg)
@@ -495,8 +495,8 @@ def run_engineer(model, evidence, round_no, prompt, max_steps=14,
                    "answer, then finish)")
 
     if len(evidence) == n0:                       # never ran code: record that
-        add({"intent": "(engineer ran no code)", "ran_code": "",
+        add({"intent": "(executor ran no code)", "ran_code": "",
              "received_output": "(no code was run within the step limit)",
-             "interpretation": "engineer failed to gather evidence",
+             "interpretation": "executor failed to gather evidence",
              "valid_python": True})
-    return finish("(engineer: step limit reached)", False)
+    return finish("(executor: step limit reached)", False)

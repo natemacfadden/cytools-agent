@@ -116,7 +116,7 @@ _STYLE = """<style>
    border-radius:6px;display:block}
  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;
    margin-right:8px;vertical-align:middle}
- .dot.pm{background:#5b8def}.dot.eng{background:#46b17b}
+ .dot.coordinator{background:#5b8def}.dot.eng{background:#46b17b}
  .dot.none{background:#6b7280}
  .live{animation:pulse 1.1s infinite}
  @keyframes pulse{0%{opacity:1}50%{opacity:.25}100%{opacity:1}}
@@ -134,7 +134,7 @@ _STYLE = """<style>
    height:8px;width:2px;background:#3a4151}
  .seq{color:#5b8def;font-weight:700;font-variant-numeric:tabular-nums}
  .when{color:#6b7280;font-size:10px;float:right}
- .pm{border-left-color:#5b8def}.eng{border-left-color:#46b17b}
+ .coordinator{border-left-color:#5b8def}.eng{border-left-color:#46b17b}
  .ask{border-left-color:#c9883a}.done{border-left-color:#46b17b;
    background:#13241b}
  .obs{border:1px solid #262b36;border-radius:8px;margin:10px 0;overflow:hidden}
@@ -180,10 +180,10 @@ _BODY = """<header>orchestrator viewer
 <!--EXTRA-->
 <div id="wrap">
  <div id="left" class="col"><h2>progress</h2><div id="timeline"></div></div>
- <div id="right" class="col"><h2>evidence (engineer observations)</h2>
+ <div id="right" class="col"><h2>evidence (executor observations)</h2>
    <div class="legend"><b class="gt">ground truth</b> = exact code &amp;
      output, captured by the harness (unfakable).
-     <b class="claim">claim</b> = the engineer's own words.</div>
+     <b class="claim">claim</b> = the executor's own words.</div>
    <div id="evidence"></div></div>
 </div>"""
 
@@ -237,12 +237,12 @@ function renderActor(session){
   for(const e of session) if(e.event==='active') a=e;
   const box=document.getElementById('actor'); box.innerHTML='';
   const who=a?a.who:'none', live=who!=='none';
-  const cls=who==='PM'?'pm':who==='engineer'?'eng':'none';
+  const cls=who==='Coordinator'?'coordinator':who==='executor'?'eng':'none';
   box.appendChild(el('span','dot '+cls+(live?' live':'')));
   let label;
   if(!a) label='waiting...';
   else if(who==='none') label='idle / done';
-  else label=(who==='PM'?'Project manager':'Engineer')+': '+(a.phase||'')
+  else label=(who==='Coordinator'?'coordinator':'Executor')+': '+(a.phase||'')
     +(a.round?(' (round '+a.round+')'):'');
   if(live && a && a.t){
     const age=Date.now()/1000 - a.t;
@@ -259,27 +259,27 @@ function renderTimeline(events){
     n++;
     let cls='ev', k=e.event, body='';
     if(e.event==='question'){cls+=' ask'; k='question'; body=e.text;}
-    else if(e.event==='direct_speech'){cls+=' pm'; k='PM direct speech';
+    else if(e.event==='direct_speech'){cls+=' coordinator'; k='Coordinator direct speech';
       body=e.text;}
-    else if(e.event==='plan'){cls+=' pm'; k='PM plan';
+    else if(e.event==='plan'){cls+=' coordinator'; k='Coordinator plan';
       body=(e.todo||[]).map((s,i)=>(i+1)+'. '+s).join('\\n');}
-    else if(e.event==='dispatch'){cls+=' pm';
-      k='PM dispatch (round '+e.round+')'; body=e.task;}
+    else if(e.event==='dispatch'){cls+=' coordinator';
+      k='Coordinator dispatch (round '+e.round+')'; body=e.task;}
     else if(e.event==='off_step'){cls+=' ask';
       k='OFF-STEP (round '+e.round+'): answer did not address the step';
       body=e.report||'';}
-    else if(e.event==='engineer_report'){cls+=' eng';
-      k='engineer report (round '+e.round+', '+e.n_obs+' obs'+
+    else if(e.event==='executor_report'){cls+=' eng';
+      k='executor report (round '+e.round+', '+e.n_obs+' obs'+
         (e.ok===false?', DID NOT FINISH':'')+')'; body=e.report;}
-    else if(e.event==='engineer_timing'){cls+=' eng';
+    else if(e.event==='executor_timing'){cls+=' eng';
       k='timing (round '+e.round+')';
       body=e.llm_calls+' LLM calls = '+e.llm_s+'s, code = '+e.code_s+'s';}
-    else if(e.event==='llm_call'){cls+=' pm';
+    else if(e.event==='llm_call'){cls+=' coordinator';
       k='LLM call: '+e.label+(e.think?' (think)':'');
       body=e.s+'s, prompt '+(e.prompt_chars||0)+' chars';}
     else if(e.event==='step_failed'){cls+=' ask';
       k='STEP FAILED (walk stopped)'; body=e.step;}
-    else if(e.event==='respond'){cls+=' done'; k='PM to user'; body=e.message;}
+    else if(e.event==='respond'){cls+=' done'; k='Coordinator to user'; body=e.message;}
     const when=e.t?('+'+Math.round(e.t-t0)+'s'):'';
     const d=el('div',cls); const kd=el('div','k');
     kd.appendChild(el('span','seq', n+'.'));
@@ -295,7 +295,7 @@ function renderEvidence(obs, t0){
   obs.forEach((o,i)=>{
     if(o.round!==lastRound){           // round divider lines up with dispatch
       lastRound=o.round;
-      box.appendChild(el('div','rounddiv','round '+o.round+' (engineer)'));
+      box.appendChild(el('div','rounddiv','round '+o.round+' (executor)'));
     }
     const c=el('div','obs'+(o.kind==='validation'?' val':''));
     const hd=el('div','hd');

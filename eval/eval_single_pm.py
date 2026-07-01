@@ -16,7 +16,7 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Single-agent eval on the PM corpus (or any corpus file) -- the
+# Description:  Single-agent eval on the Coordinator corpus (or any corpus file) -- the
 #               architecture comparison arm: the SAME multi-step problems the
 #               orchestrator is measured on, run through the plain Agent loop,
 #               graded by the SAME grader. NOTE the agent talks to Ollama's

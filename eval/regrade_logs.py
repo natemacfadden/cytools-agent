@@ -18,7 +18,7 @@
 # -----------------------------------------------------------------------------
 # Description:  Validation harness for evidence-based grading: re-grade every
 #               ARCHIVED session (scratch/logs/session_*.json) BOTH ways --
-#               prose (the PM's final answer text) and evidence (truth must
+#               prose (the Coordinator's final answer text) and evidence (truth must
 #               appear in a computed received_output) -- and print every
 #               disagreement with enough context to adjudicate by eye. The
 #               sessions' questions are matched to pm_corpus truths.

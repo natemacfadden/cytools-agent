@@ -49,7 +49,7 @@ from cytools_agent.tools import polytope, triangulation, cy
 
 # persistent namespace: raw cytools + trusted tool functions. numpy (np),
 # matplotlib.pyplot (plt) and the raw cytools library are preloaded too -- the
-# engineer needs them for arrays, plots, and anything the tools don't cover.
+# executor needs them for arrays, plots, and anything the tools don't cover.
 _NS = {
     "cytools": cytools,
     "np": np,
@@ -91,7 +91,7 @@ _TOOL_NAMES = [n for n in _PRELOADED
 
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
 # Wall-clock cap for ONE run_python call (seconds; 0 disables). Observed: an
-# engineer step burned 14+ minutes of CPU recomputing get_polytope_info (all
+# executor step burned 14+ minutes of CPU recomputing get_polytope_info (all
 # fields, incl. automorphisms) for thousands of polytopes -- with no LLM in
 # the loop to notice. The cap turns runaway computation into a pointed,
 # recoverable error. Main-thread only (signals); other threads are uncapped.

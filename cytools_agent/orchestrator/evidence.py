@@ -16,7 +16,7 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Evidence: reading the engineer's outputs and guaranteeing their
+# Description:  Evidence: reading the executor's outputs and guaranteeing their
 #               accuracy. Holds the two on-disk streams a session writes -- the
 #               progress events (session.jsonl) and the observations
 #               (evidence.jsonl) -- plus log archiving, and the accuracy checks
@@ -54,7 +54,7 @@ def reset_session(path=SESSION_PATH):
 
 
 def emit(event, path=SESSION_PATH, **fields):
-    """Append one progress event (PM step, dispatch, report, ...)."""
+    """Append one progress event (Coordinator step, dispatch, report, ...)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a") as f:
         f.write(json.dumps({"event": event, "t": time.time(), **fields}) + "\n")
@@ -174,7 +174,7 @@ def render_evidence(path=EVIDENCE_PATH, last=None):
             f"    interpretation: {o.get('interpretation') or '(none stated)'}"
         )
     head = "[Evidence log -- ran_code/received_output are ground truth; " \
-           "intent/interpretation are the engineer's claims]\n"
+           "intent/interpretation are the executor's claims]\n"
     if start:
         head += f"...({start} earlier observation(s) omitted)...\n"
     return head + "\n".join(out)
@@ -254,7 +254,7 @@ def _prints_only_literals(code):
 
 
 # harness-only marker that run_python appends ONLY when matplotlib actually
-# wrote a figure to disk; the engineer cannot emit it without making a real
+# wrote a figure to disk; the executor cannot emit it without making a real
 # figure, so it is unfakable provenance for a plot deliverable
 _FIG_SAVE_RE = re.compile(r"\[saved \d+ figure\(s\): ")
 # an answer that is a plot/file deliverable (names a figure rather than a value)

@@ -16,11 +16,11 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Evaluation harness for the two-agent ORCHESTRATOR (PM+engineer)
-#               on the PM corpus (eval/pm_corpus.jsonl). The orchestrator's
+# Description:  Evaluation harness for the two-agent ORCHESTRATOR (Coordinator+executor)
+#               on the Coordinator corpus (eval/pm_corpus.jsonl). The orchestrator's
 #               deliverable is usually a figure plus a stated result, so this
 #               grades leniently with the SAME grader as the single-agent evals
-#               (does the corpus summary value appear in the PM's final answer?)
+#               (does the corpus summary value appear in the Coordinator's final answer?)
 #               AND, more importantly, extracts per-run DIAGNOSTICS from the
 #               session log -- rounds, observations, step-limit hits, off-step
 #               drift, and repeated-step loops -- which is what surfaces harness
@@ -85,11 +85,11 @@ def _diagnostics(session, evidence):
 
 
 def evidence_grade(truth, evidence):
-    """Grade against the harness-captured ground truth instead of the PM's
+    """Grade against the harness-captured ground truth instead of the Coordinator's
     prose: PASS iff the truth value appears in the received_output of an
     observation whose code actually computed (not a typed literal). Immune to
     the two observed prose-grader failure modes -- truth digits colliding with
-    jargon in the summary, and the PM paraphrasing away the number."""
+    jargon in the summary, and the Coordinator paraphrasing away the number."""
     for o in evidence:
         if _prints_only_literals(o.get("ran_code", "")):
             continue
@@ -128,7 +128,7 @@ def run_one(row, model, timeout, votes=1):
                         .split("(LOW CONFIDENCE")[0]
     status = "TIMEOUT" if timed_out else grade(graded_text, row["answer"])
     # honest bar: a run that did not finish (step limit / walk stopped) is not
-    # a PASS even if the truth digit happens to appear in the PM's prose.
+    # a PASS even if the truth digit happens to appear in the Coordinator's prose.
     # NOT applied to voted runs: their diagnostics describe only the LAST
     # constituent session, which may not be the one whose answer was chosen.
     if status == "PASS" and diag["step_failed"] and votes == 1:

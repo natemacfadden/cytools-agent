@@ -29,14 +29,14 @@ layers -- is the **permissive scaffolding** that lets a weak model drive
 
 ## Actors and channels
 
-There is one model (the `model` argument, e.g. qwen3:8b). "PM" and
-"engineer" are two roles it plays, distinguished only by system prompt and
+There is one model (the `model` argument, e.g. qwen3:8b). "Coordinator" and
+"executor" are two roles it plays, distinguished only by system prompt and
 conversation shape:
 
-- Each **PM** action (translate, compile, plan, the judge calls, summarize)
+- Each **Coordinator** action (translate, compile, plan, the judge calls, summarize)
   is a separate stateless call: fresh system prompt + one user message, no
-  memory between calls. State lives in the harness, not the PM.
-- The **engineer** is the only stateful conversation: within one dispatched
+  memory between calls. State lives in the harness, not the Coordinator.
+- The **executor** is the only stateful conversation: within one dispatched
   step it accumulates messages (its replies + the outputs of the code it
   ran) until the step finishes or the budget ends. It is also the only role
   whose output causes execution.
@@ -123,7 +123,7 @@ The walk -- the fallback path, entered only through those three cases:
 plan (1 LLM call): 2-5 {do, produce} steps
     |
 for each step, in order:
-    dispatch -> engineer loop (run code, observe, repeat)
+    dispatch -> executor loop (run code, observe, repeat)
     per-step checks (check layer 5 below: did the step really make its
     declared `produce`, and address this step?); on failure, one
     corrective re-dispatch naming what was wrong;
@@ -149,7 +149,7 @@ The two paths compose answers differently -- pipeline: programmatically from
 computed values; walk: an LLM summary of the evidence log -- and both funnel
 through the same final verification.
 
-### 1. translate (PM, 1 LLM call)
+### 1. translate (Coordinator, 1 LLM call)
 
 Restates the question in plain words, unpacking jargon via the glossary and --
 in chat -- resolving references ("those polytopes") against prior turns.
@@ -163,7 +163,7 @@ question, and all shape guards check the raw question too, never only the
 restatement. Note: the stage's net value has never been A/B-tested (no arm
 has run with translate disabled); it is kept on convention, not evidence.
 
-### 2. The pipeline fast path (PM, 1 compile call; harness executes)
+### 2. The pipeline fast path (Coordinator, 1 compile call; harness executes)
 
 One schema-constrained call fills the spec form:
 
@@ -185,14 +185,14 @@ programmatically from computed values (no LLM sits between the numbers and
 the prose). Any misfit or runtime failure falls back to the walk after one
 recompile.
 
-### 3. plan (PM, 1 call, only if the pipeline declined)
+### 3. plan (Coordinator, 1 call, only if the pipeline declined)
 
 Schema: `{todo: [{do: str, produce: str}]}`, 2-5 items enforced by the
 decoding grammar; code-level back-stops remain (`_coerce_steps`, retry x3,
 `_force_two_steps`, `_ensure_deliverable` appends a dropped plot step).
 `produce` is load-bearing: it is what the per-step checks verify against.
 
-### 4. dispatch (PM -> engineer, plain text, fixed form)
+### 4. dispatch (Coordinator -> executor, plain text, fixed form)
 
 Each step is sent as one user message:
 
@@ -207,9 +207,9 @@ PRODUCE: <step.produce>
 
 (The capitalized labels here are literal text in the prompt, not emphasis.)
 
-### 5. act (engineer's reply -- the one enforced format)
+### 5. act (executor's reply -- the one enforced format)
 
-The engineer's whole reply is decoded under:
+The executor's whole reply is decoded under:
 
 ```
 { reflection: str,        # interpretation of previous output (pressure valve)
@@ -248,7 +248,7 @@ until `done` with a grounded answer, or the budget ends the round
 the loop). Finish-forgiveness: an `answer` variable assigned in the
 scratchpad counts as the done-signal (still subject to the grounding check).
 
-### 6. compose + return (PM)
+### 6. compose + return (Coordinator)
 
 `summarize()` writes the user answer from the evidence log only (with an
 honesty clause if the walk stopped early); pipeline-path answers skip this
@@ -277,7 +277,7 @@ numeric self-consistency.
    check rejects `print(42)`-style typed literals). Plot deliverables are
    grounded by the `[saved N figure(s)]` marker, which only the harness can
    write.
-5. **Post-step (PM judges the engineer)** -- `_produce_met` (programmatic:
+5. **Post-step (Coordinator judges the executor)** -- `_produce_met` (programmatic:
    plot steps need the figure marker), `verify_produce` (LLM: right
    type/shape for `produce`), `addresses` (LLM: drift gate, lenient by
    design). One corrective re-dispatch, then the walk stops honestly.
@@ -301,7 +301,7 @@ unlike string matching or an LLM judge. Where each is used:
   helpers, preloaded tools, builtins, and `ks_ind`; anything left is a
   dangling shorthand the model used without defining. Rejected with a
   fill-this-slot instruction naming the loose name.
-- **Quantity lint** (layer 2; opt-in engineer variant): identifiers are
+- **Quantity lint** (layer 2; opt-in executor variant): identifiers are
   extracted from the spec's expressions and compared against the marker sets
   derived from glossary recipes (dict fields like `['genera_2face']` and
   method names, regex-extracted from each recipe). A spec whose identifiers
@@ -311,8 +311,8 @@ unlike string matching or an LLM judge. Where each is used:
   walk the code that produced a candidate answer; if everything it prints is
   a constant (`print(42)`) rather than a name or call, the "answer" was
   typed, not computed, and grounding rejects it.
-- **No-op narration detection** (engineer loop-breaker,
-  `engineer._is_noop_print`): code consisting only of `print(<literal>)`
+- **No-op narration detection** (executor loop-breaker,
+  `executor._is_noop_print`): code consisting only of `print(<literal>)`
   statements is bucketed as a no-op regardless of the printed text, so
   varying the narration cannot dodge the repeated-code detector.
 - **Assignment extraction** (`code._assigned_names`): when a `run_python`

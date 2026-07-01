@@ -18,13 +18,13 @@
 # -----------------------------------------------------------------------------
 # Description:  The typed pipeline: most research questions here are
 #               fetch -> per-item map -> reduce -> (plot). Instead of walking
-#               a weak engineer through those steps in free-form code, ONE
+#               a weak executor through those steps in free-form code, ONE
 #               schema-constrained compile call asks the model to fill the
 #               template's slots (filters, one-item expressions, reduce ops,
 #               plot axes); the HARNESS executes the pipeline deterministically
 #               and composes the answer from computed values. Anything that
 #               does not fit (fits=false, validation failure, runtime failure)
-#               falls back to the normal PM walk -- the pipeline is a fast
+#               falls back to the normal Coordinator walk -- the pipeline is a fast
 #               path, never a constraint on what can be asked.
 #
 #               A/B gated: CYTOOLS_PIPELINE (default off until validated).
@@ -386,7 +386,7 @@ _SINGULAR_POLY_RE = re.compile(
     r"\bfirst\b[^.?]*\bpolytope\b|\bthe polytope\b|\bthis polytope\b", re.I)
 # a PLURAL request is one that names a COUNT (>1) of polytopes -- "first 30",
 # "50 polytopes". A bare "polytopes" must NOT count: it appears generically in
-# the PM's translation ("fetch polytopes at h11=4 ...") and was silently
+# the Coordinator's translation ("fetch polytopes at h11=4 ...") and was silently
 # blocking the singular->limit-1 fix whenever the translation pluralized,
 # making single-polytope count questions flaky ([2],[86],[100],[17]).
 _PLURAL_COUNT_RE = re.compile(r"\bfirst\s+\d+\b|\b\d+\s+polytopes\b", re.I)
@@ -584,7 +584,7 @@ def _spec_quantity_issues(spec, direct):
     return "; ".join(issues)
 
 
-def compile_pipeline(pm, direct, cheatsheet, context="", raw=""):
+def compile_pipeline(coordinator, direct, cheatsheet, context="", raw=""):
     """One schema-constrained compile call -> the spec dict (unvalidated).
     `context` carries prior-turn information (previous questions/answers and
     the stored id lists) so follow-ups can resolve references. `raw` is the
@@ -595,8 +595,8 @@ def compile_pipeline(pm, direct, cheatsheet, context="", raw=""):
     user = ((f"{context}\n\n" if context else "")
             + f"REQUEST:\n{direct}\n\n{cheatsheet}"
             + (f"\n\n{gloss}" if gloss else ""))
-    return pm._json(_COMPILE_INSTRUCTIONS, user, think=pm.plan_think,
-                    label="PM.compile", schema=PIPELINE_FORMAT)
+    return coordinator._json(_COMPILE_INSTRUCTIONS, user, think=coordinator.plan_think,
+                    label="Coordinator.compile", schema=PIPELINE_FORMAT)
 
 
 def _run_search(spec, evidence):
@@ -975,7 +975,7 @@ def _spec_issue(spec, asked, direct):
     return ("quantity lint: " + why) if why else ""
 
 
-def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
+def try_pipeline(coordinator, direct, evidence, cheatsheet, log, context="", raw=""):
     """The fast path: compile, validate (with ONE lint-guided recompile),
     execute. Returns the answer string, or None to fall back to the
     free-form walk (reason logged + emitted). The shape guards check the RAW
@@ -986,7 +986,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
     feedback = ""
     for _attempt in range(2):    # compile, then at most one guided recompile
         try:
-            spec = compile_pipeline(pm, direct + feedback, cheatsheet,
+            spec = compile_pipeline(coordinator, direct + feedback, cheatsheet,
                                     context=context, raw=raw)
         except Exception as e:
             emit("pipeline", fits=False, reason=f"compile error: {e}")
@@ -1025,7 +1025,7 @@ def try_pipeline(pm, direct, evidence, cheatsheet, log, context="", raw=""):
         emit("pipeline", fits=False, reason=f"runtime: {e}", retrying=True)
         try:
             spec2 = compile_pipeline(
-                pm, direct + ("\n\n(Your previous attempt failed when RUN: "
+                coordinator, direct + ("\n\n(Your previous attempt failed when RUN: "
                               f"{e}. Fix exactly that -- use the glossary "
                               "recipes verbatim.)"),
                 cheatsheet, context=context, raw=raw)
