@@ -77,13 +77,6 @@ def main():
     rows = {r["id"]: r for r in (json.loads(l) for l in open(corpus))}
     ids = ([int(x) for x in opt("--ids").split(",")] if "--ids" in args
            else sorted(rows))
-    # optional uniform answer contract: appended to the QUESTION (so every rung
-    # gets it identically -- a shared outermost layer, not per-rung scaffold).
-    contract = "--answer-contract" in args
-    CONTRACT = ("\n\nEnd your reply with a single final line, exactly:\n"
-                "FINAL ANSWER: <value>\n"
-                "(just the value -- a number, list, or word -- no units or "
-                "extra text on that line.)")
 
     import cytools
     date = datetime.date.today().isoformat()
@@ -102,7 +95,7 @@ def main():
             "git_commit": _git_commit(),
             "cytools_version": getattr(cytools, "version", "unknown"),
             "example_seed": os.environ.get("CYTOOLS_EXAMPLE_SEED", str(seed)),
-            "answer_contract": contract, "date": date, "results": [],
+            "date": date, "results": [],
         }
 
     # depth-first order: shuffle the (rep, id) pairs, then for each pair run
@@ -121,8 +114,7 @@ def main():
             to = TIMEOUT.get(rung, DEFAULT_TIMEOUT)
             t0 = time.monotonic()
             try:
-                qtext = q["question"] + CONTRACT if contract else q["question"]
-                ans = _run_isolated(rung, model, qtext, to)
+                ans = _run_isolated(rung, model, q["question"], to)
             except Exception as e:
                 ans = f"(error: {type(e).__name__}: {e})"
             dt = round(time.monotonic() - t0, 1)
