@@ -189,3 +189,7 @@ Normal use needs none of the knobs below; `setup.sh` configures everything. The 
 | `CYTOOLS_AGENT_KS_CACHE` / `CYTOOLS_AGENT_KS_BASE` | Opt-in (default off): the writable overlay and read-only trusted base of the persisted polytope cache. Dev feature; grows large. |
 
 The protocol between the PM, the engineer, and the check layers is documented in `cytools_agent/orchestrator/PROTOCOL.md`.
+
+## License
+
+[GPLv3](LICENSE). Copyright (c) 2026 Nate MacFadden.
