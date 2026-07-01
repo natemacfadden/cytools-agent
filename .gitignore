@@ -11,3 +11,5 @@ notebooks/scratch/
 *.jsonl
 !eval/*.jsonl
 diagnostics/system_ladder/*.json
+diagnostics/*.md
+!diagnostics/README.md
