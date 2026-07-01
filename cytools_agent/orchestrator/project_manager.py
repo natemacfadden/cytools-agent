@@ -452,6 +452,9 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
     deadline = (time.monotonic() + max_seconds) if max_seconds else None
     reset_evidence()
     reset_session()
+    from cytools_agent.orchestrator._final import reset_final, get_final, \
+        final_block
+    reset_final()              # clear any typed answer captured by a prior run
     _code.reset_figures()      # so this run archives only the figures it makes
     if reset:
         _code.reset_namespace()  # clear the scratchpad so vars (polytope_ids)
@@ -508,6 +511,9 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
             emit("respond", message=ans)
             emit("active", who="none", phase="done")
             log("[log saved]", save_log(user_message, ans, stamp))
+            fk = get_final()                       # typed answer, if captured
+            if fk is not None:
+                ans += "\n" + final_block(*fk)
             return ans
 
     emit("active", who="PM", phase="planning")
@@ -696,4 +702,7 @@ def run_session(user_message, model="qwen3:8b", max_rounds=6, verbose=True,
     emit("respond", message=msg)
     emit("active", who="none", phase="done")
     log("[log saved]", save_log(user_message, msg, stamp))
+    fk = get_final()                               # typed answer, if captured
+    if fk is not None:
+        msg += "\n" + final_block(*fk)
     return msg

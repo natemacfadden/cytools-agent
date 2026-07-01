@@ -50,10 +50,52 @@ import eval._env  # noqa: F401  (env pins; must precede cytools_agent imports)
 
 # local imports
 from eval.grading import grade
+from eval.answer import FINAL_INSTRUCTION, parse_final
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "diagnostics", "system_ladder")
 DEFAULT_CORPUS = os.path.join(os.path.dirname(__file__), "pm_corpus.jsonl")
+
+
+def _finalize_blind(text, question, model, timeout=120):
+    """Backstop when a rung did not emit a <final> block: extract its committed
+    answer as a typed value with a SEPARATE model call that is BLIND to the
+    truth (so it cannot bias toward a match) and constrained to emit only the
+    block. Returns the block string, or "" if it can't parse one out."""
+    from eval._harness import client
+    sysmsg = (
+        "Extract the assistant's COMMITTED answer to the question as a typed "
+        "value. Output ONLY one line and nothing else:\n"
+        '<final>{"kind": "<int|float|list|bool|impossible|none>", '
+        '"value": <v>}</final>\n'
+        "value is a bare number, a JSON array, true/false, or null. Use kind "
+        '"impossible" (value null) if the assistant reports the task has no '
+        'valid answer; "none" (value null) if it did not determine one.')
+    user = (f"QUESTION:\n{question}\n\nASSISTANT ANSWER:\n{text}\n\n"
+            "Extract the committed answer. /no_think")
+    try:
+        resp = client.chat.completions.create(
+            model=model, timeout=timeout, temperature=0,
+            messages=[{"role": "system", "content": sysmsg},
+                      {"role": "user", "content": user}])
+        raw = (resp.choices[0].message.content or "").strip()
+    except Exception:
+        return ""
+    return raw if parse_final(raw) is not None else ""
+
+
+def _ensure_final(text, question, model):
+    """Guarantee the answer carries a <final> block. Keep an existing one (model
+    complied, or the orchestrator captured a typed value); never finalize a
+    TIMEOUT/ERROR sentinel (grading quarantines those); else append the blind
+    finalizer's extraction."""
+    if not isinstance(text, str):
+        return text
+    from eval.grading import TIMED_OUT
+    if text == TIMED_OUT or text.startswith("(error:") or parse_final(text):
+        return text
+    block = _finalize_blind(text, question, model)
+    return (text + "\n" + block) if block else text
 
 
 def _run_L0(model, question, timeout):
@@ -61,30 +103,35 @@ def _run_L0(model, question, timeout):
     from eval._harness import client
     resp = client.chat.completions.create(
         model=model, timeout=timeout,
-        messages=[{"role": "user", "content": question}])
-    return (resp.choices[0].message.content or "").strip()
+        messages=[{"role": "user", "content": question + FINAL_INSTRUCTION}])
+    ans = (resp.choices[0].message.content or "").strip()
+    return _ensure_final(ans, question, model)
 
 
 def _run_L1(model, question, timeout):
     from eval._harness import run
-    return run(model, question, timeout, raw=True)
+    ans = run(model, question + FINAL_INSTRUCTION, timeout, raw=True)
+    return _ensure_final(ans, question, model)
 
 
 def _run_L2(model, question, timeout):
     from eval._harness import run
-    return run(model, question, timeout, raw=False)
+    ans = run(model, question + FINAL_INSTRUCTION, timeout, raw=False)
+    return _ensure_final(ans, question, model)
 
 
 def _run_L3(model, question, timeout):
     from cytools_agent.orchestrator import run_session
-    return run_session(question, model=model, verbose=False,
-                       max_seconds=timeout)
+    ans = run_session(question, model=model, verbose=False,
+                      max_seconds=timeout)
+    return _ensure_final(ans, question, model)
 
 
 def _run_L4(model, question, timeout):
     from cytools_agent.orchestrator import run_session_voted
-    return run_session_voted(question, votes=3, model=model, verbose=False,
-                             max_seconds=timeout)
+    ans = run_session_voted(question, votes=3, model=model, verbose=False,
+                            max_seconds=timeout)
+    return _ensure_final(ans, question, model)
 
 
 RUNGS = {

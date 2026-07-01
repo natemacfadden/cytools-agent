@@ -846,6 +846,7 @@ def run_pipeline(spec, evidence):
     # and let the map column itself be the deliverable (handled just below).
     if len(ok_ids) == 1:
         spec["reduce"] = []
+    from cytools_agent.orchestrator._final import set_final, kind_of
     if not spec["reduce"]:
         # no aggregation asked: the per-item values ARE the deliverable --
         # show them (briefly) instead of only naming the columns
@@ -854,6 +855,14 @@ def run_pipeline(spec, evidence):
             shown = vals if len(vals) <= 40 else vals[:40]
             tail = " ..." if len(vals) > 40 else ""
             parts.append(f"{name}: {shown}{tail}")
+        # a single map column is the deliverable -> capture it typed: one value
+        # is a scalar answer (bool/int/float), many values are a list
+        if len(spec["map"]) == 1:
+            col = list(cols[spec["map"][0]])
+            if len(col) == 1 and kind_of(col[0]):
+                set_final(kind_of(col[0]), col[0])
+            else:
+                set_final("list", col)
     for red in spec["reduce"]:
         op = red["op"]
         val = _reduce(op, cols[red["of"]], ok_ids)
@@ -861,6 +870,10 @@ def run_pipeline(spec, evidence):
              f"{op}({red['of']})", val)
         parts.append(f"{red['name']} ({op} of {red['of']}): {val} "
                      f"[ledger row {map_row}].")
+        # capture the reduce result as the typed committed answer (last wins)
+        _k = kind_of(val)
+        if _k:
+            set_final(_k, list(val) if _k == "list" else val)
 
     for p in spec.get("plot") or []:
         note = make_plot(kind=p["kind"], x=p["x"], y=p.get("y"),
