@@ -68,8 +68,8 @@ def _finalize_blind(text, question, model, timeout=120):
 
 
 def ensure_final(text, question, model, backstop=True):
-    """Guarantee the answer carries a <final> block. Keep an existing one (model
-    complied, or the orchestrator captured a typed value); never finalize a
+    """Guarantee the answer carries a <final> block. Keep an existing one (the
+    model already emitted it); never finalize a
     TIMEOUT/ERROR sentinel (grading quarantines those); else, when backstop is
     on, append the blind finalizer's extraction. backstop=False (external-model
     arms whose finalizer client cannot reach the model) leaves it untouched and

@@ -37,7 +37,7 @@ import json
 import time
 
 _ROWS = []          # this process's rows, in order
-_SINK = None        # optional callback(row) -- the orchestrator wires one
+_SINK = None        # optional callback(row) -- a host can wire one
 _DEPTH = 0          # reentrancy: record only depth-0 calls
 
 _ARG_CAP = 300      # per-argument serialized length
@@ -102,8 +102,8 @@ def last_id():
 
 
 def set_sink(cb):
-    """The orchestrator (or any host) registers a callback to receive each
-    row as it is written -- e.g. to stream into a session's evidence log."""
+    """A host registers a callback to receive each row as it is written --
+    e.g. to stream into an evidence/session log."""
     global _SINK
     _SINK = cb
 

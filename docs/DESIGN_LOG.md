@@ -80,3 +80,31 @@ For AI agents: these notes must be MINIMAL, backed by FACTS/EXPERIMENTS, limit n
 - id121 (impossible target): reports a volume from a non-converged solve because compute_for_each pulls ['cy_volume'] and drops the converged=False flag; plain L2 sees the whole result and abstains. [evidence: session logs/ledger]
 - fixes parked on branch fix/l3-failures (unmerged): key-hint on missing dict fields, demote non-converged solver fields under `last_iterate`, finalizer maps an execution error to "none" not "impossible". [evidence: written + behavior unit-checked on _InfoDict; NOT validated to change pass rate]
 - prelim full-corpus ladder run started then killed early: at n~10 (~2.5%), L2 >= L3 >= L4. [evidence: WEAK, not significant]
+
+## (2026-07-02) Starting repo cleanup: removing the orchestration layer
+
+- removing the two-agent orchestrator (cytools_agent/orchestrator/, the L3/L4 rungs, eval_orch.py): worse than the simpler L2, and adds bulk and latency. rationale and failure modes are logged above; the code goes, the lessons stay. [evidence: prior testing summarized above; the clean re-run was only n~10 but reproduced the loss modes]
+- keeping the tool layer, context injection, typed grader, and the L0-L2 ladder.
+- done: deleted cytools_agent/orchestrator/ (+ viewer.py, eval_orch.py), dropped L3/L4 from the ladder, swept stale refs, and repointed README + diagnostics to the L0-L2 story and the Agent loop. ~3.75k lines removed. [evidence: `import cytools_agent` ok, eval modules compile, test_answer 11/11, no code imports the orchestrator]
+- still open: notebooks/demo.ipynb still uses the orchestrator (separate rework); branch fix/l3-failures (tool fixes) still unmerged.
+
+## (2026-07-02) Demo notebook off the orchestrator
+
+- notebooks/demo.ipynb: removed the 7 orchestrator cells (run_session, voting, OrchestratorChat, viewer); added the map/plot/search + glossary tools to the Agent's tool list and one "iterate and plot" agent.chat demo. [evidence: valid JSON, 14 cells, no orchestrator refs; the 14-tool wiring builds schemas cleanly in the env]
+- not yet run: the new plot cell has no output; the notebook needs an end-to-end run to repopulate, and the qwen3:8b plot query should be eyeballed (small models were the weak spot for multi-step plots).
+
+## (2026-07-02) Two small fixes: setup.sh restart, cleaner agent trace
+
+- setup.sh: `systemctl enable --now` does not restart an already-running ollama, so re-running setup never applied the OLLAMA_CONTEXT_LENGTH=16384 drop-in -- the live process predated it and kept the ~4096 default, front-truncating the system prompt (model reverts to generic chatter). Changed to enable + restart. [evidence: drop-in dated 07-02 16:47, ollama process up since 07-01 17:00; the agent's truncation probe still fired]
+- agent.py verbose logging (v>=2): print each tool call as one line `-> name(args)` instead of dumping the raw ChatCompletionMessage repr (which carried the full reasoning field), and put a blank line before the returned answer so the response is separated from the trace. [evidence: compiles, imports, formatter checked]
+
+## (2026-07-02) Demo quirk: notebook agent was missing glossary injection
+
+- the notebook built Agent() without message_hook, so the encyclopedia auto-injection (the README's knowledge pillar) was off in the demo -- the model hallucinated "NTFE = Normal Triangulations with Fixed Edges" (real: Not-2-face-equivalent). Added message_hook=glossary.glossary_context, matching eval/_harness.make_agent. [evidence: glossary_context now returns the real NTFE definition for that question]
+- left as-is (plain-loop behavior, per the L2 notes above): the agent guesses get_cy_info height vectors instead of threading get_heights output, and sometimes explains instead of computing.
+
+## (2026-07-02) Demo failure: confabulated favorability, and the keyword injector missed the fix
+
+- on qwen3:8b: for a polytope with 2 NTFEs the agent returned only 1 CY volume, then invented a false justification ("only 1 NTFE is favorable", "favorability is per-triangulation", "1 valid, 1 invalid non-regular/star") and defended it across three corrections before recomputing both (33.604, 37.160). favorability is a property of the polytope, and NTFEs are FRST by construction, so both are valid. [evidence: demo cells fbd01ceb..1e43a5d3]
+- contributing cause (not root): the keyword glossary injection never surfaced the `favorable` definition that would have countered it. `favorable` is in _SCAN_SKIP (an over-fire guard) and the token matcher misses "Favorability"; also glossary_context only scans the user message, so it cannot catch a term the model raises unprompted (which is where the confabulation started). a semantic retriever would likely have injected the definition on "Favorability is a property of the polytope". [evidence: glossary_context returned "" for that message; cy_glossary('favorability') resolves to the favorable entry]
+- root cause is the weak model confabulating and defending. bumped the demo to qwen3:14b; cells fbd01ceb..1e43a5d3 presuppose the 8b error and likely need removing once 14b answers the CY-volume question in one turn. [evidence: not yet re-run on 14b]

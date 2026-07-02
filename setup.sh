@@ -56,8 +56,11 @@ elif command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=16384"\n' | \
         sudo tee /etc/systemd/system/ollama.service.d/cytools-agent.conf >/dev/null
     sudo systemctl daemon-reload
-    sudo systemctl enable --now ollama
-    echo "    systemd service enabled (drop-in: OLLAMA_CONTEXT_LENGTH=16384)"
+    sudo systemctl enable ollama
+    # restart (not just `enable --now`): a service that was already running
+    # would otherwise keep its old env and ignore the drop-in above.
+    sudo systemctl restart ollama
+    echo "    systemd service (re)started with OLLAMA_CONTEXT_LENGTH=16384"
 else
     # no service manager (e.g. a container): plain background process
     if ! curl -sf http://localhost:11434/api/version >/dev/null 2>&1; then

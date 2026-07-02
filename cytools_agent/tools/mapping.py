@@ -544,8 +544,8 @@ def search_polytopes(condition: str, objective: str = "largest_h11",
     }
 
 
-# DEFAULT ON since the 2026-06-10 A/B (orchestrator 0/12 -> 4-6/12; the only
-# passing configuration). CYTOOLS_MAP_TOOLS=0 restores the baseline arm.
+# DEFAULT ON: the map/iteration tools materially raised pass rates in early A/B
+# testing. CYTOOLS_MAP_TOOLS=0 restores the baseline (no map tools).
 MAP_TOOLS_ENABLED = env_flag("CYTOOLS_MAP_TOOLS", default=True)
 
 # A/B gate: only when enabled do the tools enter the run_python namespace and

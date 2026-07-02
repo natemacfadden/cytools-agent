@@ -1,9 +1,9 @@
 # cytools-agent
 *[Nate MacFadden](https://github.com/natemacfadden), Liam McAllister Group, Cornell*
 
-An agent loop and tool harness that lets a local LLM (via [Ollama](https://ollama.com)) drive [CYTools](https://github.com/LiamMcAllisterGroup/cytools) -- fetching polytopes, computing triangulations and Calabi-Yau invariants, running arbitrary CYTools code, and exporting the session as a standalone script.
+An agent loop and tool harness that lets a local LLM (via [Ollama](https://ollama.com)) drive [CYTools](https://github.com/LiamMcAllisterGroup/cytools) -- fetching polytopes, computing triangulations and Calabi-Yau invariants, and running arbitrary CYTools code.
 
-It treats the model as *helpful but untrustworthy*, never relying on it for the two things models get wrong: its **knowledge** comes from a source-derived encyclopedia and its **results** from a harness-written evidence ledger ([How it works](#how-it-works)).
+It treats the model as *helpful but untrustworthy*, never relying on it for the two things models get wrong: its **knowledge** comes from a source-derived encyclopedia, and its **results** are checked against machine-verified invariants -- a computed value that violates a known identity is refused, not reported ([How it works](#how-it-works)).
 
 > **WARNING -- no sandbox.** The `run_python` tool executes model-generated code directly on your machine, with no isolation. Run only models and prompts you trust, on a machine where that is acceptable.
 
@@ -21,27 +21,17 @@ Open `notebooks/demo.ipynb` -- launched from the activated env, it runs in the d
 
 ## Quick start
 
-Ask research questions through the **orchestrator** -- it plans, executes with the tools, and backs every number with a harness-written evidence log:
+The zero-setup way to use it is over MCP: register the tools once and drive them from Claude Code or any MCP client (see [Use from Claude Code](#use-from-claude-code-mcp) below).
+
+To drive a *local* model yourself, use the agent loop. `notebooks/demo.ipynb` has the full setup -- assemble the tool list, point an OpenAI-compatible client at Ollama, then:
 
 ```python
-from cytools_agent.orchestrator import run_session
-print(run_session("Among the first 100 polytopes at h11=3, plot the distribution of NTFE triangulation counts and report the mean."))
+from cytools_agent import Agent
+agent = Agent(client, model, system_prompt, tools, tool_impls)
+print(agent.chat("Is the first polytope at h11=3 favorable in the N lattice?"))
 ```
 
-Questions can sweep Hodge numbers ("at each h11 in [2,10]"), ask for several figures at once, color a scatter by a third quantity, and search ("the largest h11 such that..."). For follow-ups that build on earlier answers, use the stateful chat:
-
-```python
-from cytools_agent.orchestrator import OrchestratorChat
-chat = OrchestratorChat(model="qwen3:8b")
-chat.chat("Fetch the first 25 polytopes at h11=3 and their NTFE counts.")
-chat.chat("Now scatter those counts against the polytopes' h21 values.")
-```
-
-**Watch it live:** `python -m cytools_agent.viewer`, then open http://127.0.0.1:8765 -- the plan, each step's code and real output, and figures render as the session runs. Archived sessions are browsable there too; `python -m cytools_agent.viewer export` bakes one into a shareable standalone HTML.
-
-**Extra confidence:** `run_session_voted(question, votes=3)` runs independent sessions and accepts an answer only when the final numbers agree; disagreement is flagged rather than silently picked.
-
-There is also a lighter single-agent chat loop (`cytools_agent.agent.Agent`) -- see the notebook for setup. It handles focused questions (one fetch, one invariant, one aggregation) reliably; the orchestrator exists for everything bigger.
+It handles focused questions -- a fetch, an invariant, an aggregation -- and can iterate over many polytopes and build plots through the `compute_for_each` / `make_plot` / `search_polytopes` tools.
 
 ## Tools
 
@@ -97,14 +87,14 @@ python -m eval.eval qwen3:8b 30                       # stratified sample of cor
 python -m eval.eval qwen3:8b --ids 54,57,58 --reps 3  # targeted re-runs
 python -m eval.corpus verify                          # confirm every stored answer still reproduces
 
-# agent-written hard problems -> orchestrator, auto-graded
-python -m eval.eval_orch --corpus eval/pm_corpus.jsonl --reps 3 --model qwen3:8b
+# agent-written hard multi-step problems -> plain agent loop, auto-graded
+python -m eval.eval_single_pm qwen3:8b --corpus eval/pm_corpus.jsonl --reps 3
 
 # human-written questions: truths are held out, so each run is RECORDED (status RUBRIC,
 # graded by hand later) rather than auto-scored. The system ladder is the runner that
 # handles null answers; it works on ANY corpus, holding the model + questions fixed and
-# varying one stack layer per rung L0-L4 (see diagnostics/README.md).
-python -m eval.system_ladder --rung L3 --corpus eval/heldout.jsonl --model qwen3:8b
+# varying one stack layer per rung L0-L2 (see diagnostics/README.md).
+python -m eval.system_ladder --rung L2 --corpus eval/heldout.jsonl --model qwen3:8b
 
 python -m eval.verify_glossary                        # invariants + recipes admission gate
 ```
@@ -113,7 +103,7 @@ The system ladder writes self-describing result files (rung, model, corpus, comm
 
 ## How it works
 
-The two things models get wrong -- what they *know* and what they *claim* -- each get a pillar below, with a third, more disposable scaffolding layer on top that lets a weak model drive.
+The two things models get wrong -- what they *know* and what they *claim* -- each get a pillar below.
 
 ### Design principles
 
@@ -122,73 +112,28 @@ A few principles run underneath everything, all aimed at getting a *weak* model 
 - **Minimize system prompts.** Generic, always-on text acts as noise as much as signal; shape behavior through the tools and harness instead.
 - **Guide the model in directed, stateful ways.** A detailed error message delivered mid-computation, while the model is attempting one concrete thing, lands far better than a general instruction read long ago. (Most error messages here are written for the model, not the developer.)
 - **Be forgiving at the tool boundary.** If a call is unambiguous to a human, support it rather than reject it -- accept the synonym, the stray kwarg, the slightly-off form, and steer from there.
-- **Minimize where we trust the model.** Let the model *guide* the flow, but hand the judgement of what it meant or what a result means to a separate model. This separation-of-goals lets each agent specialize (tool-calling vs. correctness) and keeps a weak model from poisoning the result by juggling too much (cf. [arXiv:2605.22763](https://arxiv.org/abs/2605.22763v1)).
+- **Minimize where we trust the model.** Let the model guide the flow, but hand the judgement of whether a result is correct to something that cannot hallucinate -- machine-checked invariants that refuse a bad value -- not to the model's say-so.
 
 ### Flow of a query
 
-A question is first restated, then routed by the model into one of three shapes, and finally every number is checked against the evidence before it reaches you:
+The model runs a plain tool-use loop: it calls the curated tools (or writes code with `run_python`), reads each real result, and keeps going until it has the answer. Mistakes come back as tool errors written for the model, so it corrects on the next step instead of failing silently.
 
-```mermaid
-flowchart TD
-    Q["user query"] --> translate
-    subgraph translate
-        direction TB
-        EI["encyclopedia injection"] --> RQ["<b>PM agent:</b> restate query plainly"]
-    end
-    translate --> compile
-    subgraph compile
-        direction TB
-        EI2["encyclopedia injection"] --> FS["<b>PM agent:</b> fill query schema"] --> GC["guards check"]
-        GC -.->|"fail: recompile <=1 times"| FS
-    end
-    compile -->|explain| E["concatenate <=5 encyclopedia/docstring lookups"]
-    compile -->|pipeline| P["run the typed spec"]
-    compile -->|misfit| PL["<b>PM agent:</b> plan steps"]
-    PL --> FF
-    subgraph FF["free-form loop"]
-        direction TB
-        GT["<b>PM agent:</b> give next task"] --> EN["<b>engineer agent:</b> tool/code use to answer task"]
-        DN(["<b>PM agent:</b> done?"]) -->|"not done"| GT
-    end
-    E --> L[("<b>truth ledger</b><br/>history of ran code and outputs")]
-    P --> L
-    EN --> L
-    L --> DN
-    L -->|"pipeline/explain paths"| V["<b>PM agent:</b> verify complete? (lenient)"]
-    V --> A["answer, cites ledger rows"]
-    DN -->|"done"| GB(["every number backed by the ledger?"])
-    GB -->|"no"| R["refuse"]
-    GB -->|"yes"| V
-```
-
-*(Diagrams are [Mermaid](https://mermaid.js.org) blocks -- they render on GitHub and in editors with Mermaid support.)*
-
-Routing is model-driven but harness-checked: one constrained model call picks the shape, deterministic guards validate it (triggering at most one recompile), and only a clean spec runs; anything that doesn't fit falls through to the forgiving plan-and-execute. All three paths write the same truth ledger, so the final gate applies no matter which produced the number.
-
-Several of those steps -- `translate`, `compile`, and each `plan-and-execute` step -- begin with a deterministic **encyclopedia injection**: the harness matches the text against the glossary and inserts any matching entries (definition + recipe) into the model's prompt.
-
-**The pipeline schema.** The compile call emits one JSON object whose keys (`fetch` / `map` / `reduce` / `search` / `explain` / `plot`) define the chosen shape; the decoder's grammar guarantees the *form* (every key present, enums legal, lists bounded) and the guards then check the *content*. The full spec is in [`PROTOCOL.md`](cytools_agent/orchestrator/PROTOCOL.md).
+### The two pillars
 
 **The encyclopedia -- knowledge from source.** `cy_glossary` / `reference` map a domain term to a *source-derived* definition and the exact recipe to compute it with these tools. `reference()` is indexed: a table of contents over topic sections, with cross-references, so the model can browse rather than guess. Conceptual questions are answered from that text and from real CYTools docstrings -- never from the model's own memory. An admission gate (`eval/verify_glossary.py`) re-runs every recipe and checks the invariants on ~145 polytopes, to catch the encyclopedia drifting from the library it describes.
 
-**The truth ledger -- results from evidence.** Every curated tool call is recorded in a harness-written ledger: exact arguments and structured results, rows the model can read but never author. Answers cite the rows backing each number; a classifier marks every numeric claim row-backed, weaker stdout-backed, or unbacked; and computed data is audited against machine-checked identities (`cytools_agent/tools/invariants.py`) -- on a violation the harness *refuses* rather than guess. The same thinking extends to the data layer: the KS cache is a read-only trusted base no run can poison, plus a writable overlay for newly discovered polytopes.
+**Results from evidence.** Computed values are audited against machine-checked identities (`cytools_agent/tools/invariants.py`): a value that violates a known identity, or an expected-integer that is not integral, is refused rather than reported. Every curated tool call is also recorded with its exact arguments and structured result, so a run can be inspected afterward. The data layer is guarded the same way: the KS cache is a read-only trusted base no run can poison, plus a writable overlay for newly discovered polytopes.
 
-These two are **model-strength-independent** -- they help a frontier model as much as a small local one, replacing exactly what no model can be trusted for. On top sits a third, disposable layer: **permissive scaffolding** that lets a *weak* model actually drive -- a typed pipeline the harness executes deterministically, schema-constrained decoding so malformed replies cannot be sampled, and a forgiving plan-and-execute fallback. It is most of the code, and is what takes qwen3:8b from near-zero on the hard plot corpus to a usable fraction (higher with self-consistency voting); it matters less as models improve.
+Both pillars are **model-strength-independent**: they help a frontier model as much as a small local one, replacing exactly what no model can be trusted for. (An earlier two-agent orchestration layer sat on top to help a weak model plan multi-step work. It was removed after it consistently underperformed the plain tool loop and added bulk; see [docs/DESIGN_LOG.md](docs/DESIGN_LOG.md).)
 
-Normal use needs none of the knobs below; `setup.sh` configures everything. The scaffolding pieces are flags, on by default, `=0` to disable:
+Normal use needs none of the knobs below; `setup.sh` configures everything. They are flags, on by default, `=0` to disable:
 
 | Flag | What it does |
 |---|---|
-| `CYTOOLS_SCHEMA_ACT` | Model replies decoded under a JSON Schema, so malformed or empty replies cannot be sampled at all. |
-| `CYTOOLS_PIPELINE` | Questions fitting fetch -> map -> reduce -> plot (or search, or explain-from-the-encyclopedia) compile to a typed spec the harness executes deterministically; misfits fall back to the plan-and-execute path. |
-| `CYTOOLS_MAP_TOOLS` | `compute_for_each` / `make_plot` / `search_polytopes`. |
-| `CYTOOLS_FINISH_FORGIVE` | Accept `answer = ...` scratchpad assignment as the step finish signal (grounding still enforced). |
-| `CYTOOLS_NUM_CTX` | Per-request context size (default 16384; `0` = server default). |
+| `CYTOOLS_MAP_TOOLS` | `compute_for_each` / `make_plot` / `search_polytopes` -- harness-side iteration, plotting, and search. |
 | `CYTOOLS_KS_BUDGET` | Real database queries allowed per session (default 40; also `CYTOOLS_KS_MIN_INTERVAL`, `CYTOOLS_KS_MAX_LIMIT`). |
 | `CYTOOLS_RUN_TIMEOUT` | Wall-clock cap on one `run_python` call (default 150 s). |
 | `CYTOOLS_AGENT_KS_CACHE` / `CYTOOLS_AGENT_KS_BASE` | Opt-in (default off): the writable overlay and read-only trusted base of the persisted polytope cache. Dev feature; grows large. |
-
-The protocol between the PM, the engineer, and the check layers is documented in `cytools_agent/orchestrator/PROTOCOL.md`.
 
 ## License
 

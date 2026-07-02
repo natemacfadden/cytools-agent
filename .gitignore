@@ -10,6 +10,9 @@ notebooks/scratch/
 *.log
 *.jsonl
 !eval/*.jsonl
-diagnostics/system_ladder/*.json
+diagnostics/system_ladder/
 diagnostics/*.md
 !diagnostics/README.md
+
+# internal working notes -- kept local, not committed (DESIGN_LOG.md is tracked)
+docs/ROADMAP.md

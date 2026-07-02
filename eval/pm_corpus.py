@@ -16,10 +16,10 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  The Coordinator corpus: BIG, multi-step research problems for the
-#               orchestrator's coordinator -- each spans many polytopes,
-#               a per-item computation, and an aggregate/plot deliverable, so it
-#               exercises planning + decomposition (not a single tool call).
+# Description:  The multi-step corpus: BIG research problems -- each spans many
+#               polytopes, a per-item computation, and an aggregate/plot
+#               deliverable, so it exercises planning + decomposition (not a
+#               single tool call).
 #
 #               Unlike eval/corpus.jsonl (single-fact questions), the deliverable
 #               here is usually a figure plus an analysis, so there is no single

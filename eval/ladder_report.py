@@ -20,8 +20,7 @@
 #               raw per-rung files do not give on their own: per-rung pass
 #               rates with adjacent-rung deltas, a failure-mode breakdown
 #               (pass / fail / timeout / error), and a per-question rung matrix
-#               that localizes where a higher rung loses to a lower one (e.g.
-#               the orchestrator regressing below the plain tool loop). A
+#               that localizes where a higher rung loses to a lower one. A
 #               graded answer that is really a harness error (worker died) is
 #               counted as 'error', not a wrong answer, so the pass rate is
 #               over genuinely scored questions. Read-only over the result
@@ -38,7 +37,7 @@ import os
 import sys
 from collections import defaultdict
 
-RUNG_ORDER = ["L0", "L1", "L2", "L3", "L4"]
+RUNG_ORDER = ["L0", "L1", "L2"]
 
 
 def _status(row):
@@ -153,35 +152,6 @@ def main():
             cells.append(f"{np_}/{n_}" if n_ else "-")
         emit(f"| {q} | {str(kinds.get(q, ''))[:18]} | "
              + " | ".join(cells) + " |")
-    emit()
-
-    # regression localizer: questions where L2 (plain tool loop) beats L3
-    # (orchestrator); flag whether L4 voting recovered the loss
-    def frac(r, q):
-        np_, n_ = perq.get(r, {}).get(q, (0, 0))
-        return (np_ / n_) if n_ else None
-
-    emit("## regressions: where L2 beats L3 (and did L4 voting recover?)")
-    emit()
-    flagged = False
-    for q in sorted(qids):
-        f2, f3, f4 = frac("L2", q), frac("L3", q), frac("L4", q)
-        if f2 is None or f3 is None or f2 <= f3:
-            continue
-        flagged = True
-        if f4 is None:
-            tag = "no L4 data"
-        elif f4 >= f2:
-            tag = "voting recovered to L2"
-        elif f4 > f3:
-            tag = "voting partial"
-        else:
-            tag = "systematic -- voting did not recover"
-        l4s = "-" if "L4" not in perq else perq["L4"].get(q)
-        emit(f"- q{q} ({kinds.get(q, '')}): L2 {perq['L2'].get(q)}, "
-             f"L3 {perq['L3'].get(q)}, L4 {l4s}  -> {tag}")
-    if not flagged:
-        emit("(none: no question where L2 outscored L3)")
     emit()
 
     out_md = os.path.join(here, "diagnostics", "ladder_report.md")

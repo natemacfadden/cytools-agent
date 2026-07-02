@@ -47,9 +47,8 @@ from eval.system_ladder import (RUNGS, _run_isolated,           # noqa: E402
                                 _git_commit, OUT_DIR,
                                 DEFAULT_CORPUS)
 
-RUNG_ORDER = ["L0", "L1", "L2", "L3", "L4"]
-# L4 votes 3x internally, so its subprocess needs a bigger cap than L0-L3
-TIMEOUT = {"L4": 900}
+RUNG_ORDER = ["L0", "L1", "L2"]
+TIMEOUT = {}
 DEFAULT_TIMEOUT = 600
 
 

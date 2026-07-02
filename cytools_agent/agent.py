@@ -113,6 +113,17 @@ def _warn_if_truncating(client, model):
         pass   # the probe must never break a session
 
 
+def _fmt_call(name, args):
+    """A tool call as one short, readable line (long arg values truncated)."""
+    parts = []
+    for k, v in args.items():
+        s = repr(v)
+        if len(s) > 60:
+            s = s[:57] + "..."
+        parts.append(f"{k}={s}")
+    return f"{name}({', '.join(parts)})"
+
+
 # human-read (class + methods, except save_history which is model-read)
 class Agent:
     """
@@ -160,14 +171,13 @@ class Agent:
                 if hasattr(msg, "model_dump") else msg)
 
             if msg.tool_calls:
-                if self.verbosity == 1:
-                    print("Agent: Tool call")
-                elif self.verbosity >= 2:
-                    print(f"Agent: Tool call `{msg.tool_calls}`")
-
                 calls = [(c.id, c.function.name,
                           json.loads(c.function.arguments))
                          for c in msg.tool_calls]
+                if self.verbosity >= 1:
+                    for _, name, args in calls:
+                        print(f"  -> {_fmt_call(name, args)}"
+                              if self.verbosity >= 2 else f"  -> {name}")
             elif (fb := extract_tool_call(msg.content, set(self.tool_impls))):
                 # malformed call -> tell the model what was wrong and retry
                 if "error" in fb:
@@ -179,10 +189,10 @@ class Agent:
                         '"arguments": {...}}.'})
                     continue
 
-                if self.verbosity == 1:
-                    print("Agent: (recovered) tool call")
-                elif self.verbosity >= 2:
-                    print(f"Agent: (recovered) tool call `{fb}`")
+                if self.verbosity >= 1:
+                    print(f"  -> (recovered) {_fmt_call(fb['name'], fb['arguments'])}"
+                          if self.verbosity >= 2
+                          else f"  -> (recovered) {fb['name']}")
 
                 # the model wrote the tool call as text, not a real tool_call,
                 # so rebuild it as one -- else the result below has nothing to
@@ -200,11 +210,6 @@ class Agent:
                 }
                 calls = [(call_id, fb["name"], fb["arguments"])]
             else:
-                if self.verbosity == 1:
-                    print("Agent: Text message")
-                elif self.verbosity >= 2:
-                    print(f"Agent: Text message `{msg}`")
-
                 final = _strip_template_tags(msg.content or "")
                 if not final.strip():
                     # newer Ollama builds put qwen3's thinking in a separate
@@ -218,6 +223,8 @@ class Agent:
                             "call a tool, or state the final answer with the "
                             "concrete numbers."})
                         continue
+                if self.verbosity >= 1:
+                    print()   # blank line: separate the trace from the answer
                 return final
 
             for call_id, name, args in calls:

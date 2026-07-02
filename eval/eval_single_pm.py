@@ -16,13 +16,12 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Single-agent eval on the Coordinator corpus (or any corpus file) -- the
-#               architecture comparison arm: the SAME multi-step problems the
-#               orchestrator is measured on, run through the plain Agent loop,
-#               graded by the SAME grader. NOTE the agent talks to Ollama's
-#               OpenAI-compatible endpoint, which cannot set num_ctx per
-#               request -- start the server with OLLAMA_CONTEXT_LENGTH=16384
-#               for a fair comparison against num_ctx-fixed orchestrator arms.
+# Description:  Single-agent eval on the multi-step corpus (or any corpus file):
+#               the plain Agent loop run over multi-polytope problems, graded by
+#               the same typed grader as the rest. NOTE the agent talks to
+#               Ollama's OpenAI-compatible endpoint, which cannot set num_ctx per
+#               request -- start the server with OLLAMA_CONTEXT_LENGTH=16384 if
+#               you need a fixed context window.
 #
 #     python -m eval.eval_single_pm qwen3:8b --ids 3,4,6,9 --reps 3
 #         [--timeout 600] [--corpus eval/ladder.jsonl] [--out results.json]
@@ -71,7 +70,7 @@ def main():
     results = []
     for i in ids:
         for rep in range(reps):
-            # fresh scratchpad per run, as run_session does for the orchestrator
+            # fresh scratchpad per run
             _code.reset_namespace()
             _code.reset_figures()
             t0 = time.monotonic()

@@ -43,9 +43,9 @@ KINDS = ("int", "float", "list", "bool", "impossible", "none")
 # closing tag; DOTALL so a value may span lines; last block wins (see below).
 _FINAL_RE = re.compile(r"<final>\s*(\{.*?\})\s*</final>", re.S | re.I)
 
-# Instruction injected at each MODEL-DRIVEN rung's OWN final layer (never the
-# shared question -- a question-level contract is absorbed by the orchestrator's
-# synthesis step, which skews L3/L4; the per-rung layer is uniform in EFFECT).
+# Instruction each model-driven rung appends at its own final layer, rather than
+# baking it into the shared question, so the contract is applied uniformly at the
+# point of answering.
 FINAL_INSTRUCTION = (
     "\n\nWhen you are done, end your reply with your committed answer on its "
     "own line, in exactly this form:\n"
@@ -60,9 +60,9 @@ FINAL_INSTRUCTION = (
 
 
 def build_final(kind, value):
-    """Serialize a typed answer block from a real Python value (used by rungs
-    that KNOW their answer structurally, e.g. the orchestrator/pipeline -- so
-    the block is code-authored, not re-parsed from prose)."""
+    """Serialize a typed answer block from a real Python value, so a caller that
+    knows its answer structurally can author the block directly instead of
+    re-parsing it out of prose."""
     if kind not in KINDS:
         raise ValueError(f"bad kind {kind!r}")
     return "<final>" + json.dumps({"kind": kind, "value": value}) + "</final>"

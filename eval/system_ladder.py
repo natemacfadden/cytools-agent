@@ -17,14 +17,12 @@
 #
 # -----------------------------------------------------------------------------
 # Description:  The ladder of systems -- the fairness design for demonstrating
-#               this harness (see diagnostics/README.md). Five rungs hold the
-#               model and questions fixed and vary one layer of the stack:
+#               this harness (see diagnostics/README.md). Each rung holds the
+#               model and questions fixed and varies one layer of the stack:
 #
 #                 L0  model alone (no tools)            -> the floor
 #                 L1  raw cytools, vanilla loop         -> the baseline
 #                 L2  curated tools, vanilla loop       -> + the tool layer
-#                 L3  the orchestrator                  -> + the scaffolding
-#                 L4  orchestrator + voting (3 runs)    -> + reliability
 #
 #               Results are written to diagnostics/system_ladder/ as
 #               self-describing JSON (rung, model, corpus, commit, seed, date
@@ -79,26 +77,10 @@ def _run_L2(model, question, timeout):
     return ensure_final(ans, question, model)
 
 
-def _run_L3(model, question, timeout):
-    from cytools_agent.orchestrator import run_session
-    ans = run_session(question, model=model, verbose=False,
-                      max_seconds=timeout)
-    return ensure_final(ans, question, model)
-
-
-def _run_L4(model, question, timeout):
-    from cytools_agent.orchestrator import run_session_voted
-    ans = run_session_voted(question, votes=3, model=model, verbose=False,
-                            max_seconds=timeout)
-    return ensure_final(ans, question, model)
-
-
 RUNGS = {
     "L0": ("model alone, no tools", _run_L0),
     "L1": ("raw cytools in a plain REPL, vanilla agent loop", _run_L1),
     "L2": ("curated tool layer, vanilla agent loop", _run_L2),
-    "L3": ("orchestrator (pipeline, schema decoding, checks)", _run_L3),
-    "L4": ("orchestrator + voting x3", _run_L4),
 }
 
 
