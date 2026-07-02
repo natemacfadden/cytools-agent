@@ -61,3 +61,22 @@ A frequent issue in my debugging of harness failures was that many of them weren
 I briefly toyed around with using a separately LLM as a judge (throwback to https://arxiv.org/html/2605.22763v1) which actually was much better at extracting the output, but this was a bit unsettling since I don't really trust the LLM. I converged, ultimately, upon enforcing a more-structured/typed output field that is used for grading. Concretely, each answer ends with a little tagged block, `<final>{"kind": "...", "value": ...}`, and the grader just compares that typed value to the truth (exact for integers, a tolerance band for floats, order-insensitive for lists), with no string-scraping at all. I mean this is used for the math HW of millions of students, so why shouldn't it be good here. That did help significantly.
 
 One thing I made myself do before deleting the old regex grader: re-grade every stored answer with both graders and read every case where they disagreed. All of them were the typed grader being right: one where regex wrongly failed a correct answer, a few where it wrongly passed a wrong one off a coincidental digit. Since the switch only ever fixed mistakes, I felt fine ripping the regex path out.
+
+# AI notes
+
+I will continue a good amount of this development via Claude Code. The move to RAG via SentenceTransformers, the pruning/iteration that I've already been doing, etc. I am a bit forgetful in recording these notes as I go (it's another thing to track on top of the commits, planning next steps) so I'll direct the agents to record my notes. Below will be AI-written notes, formatted as `## (DATE) SUBJECT`.
+
+For AI agents: these notes must be MINIMAL, backed by FACTS/EXPERIMENTS, limit notes to things that are DEMONSTRATED/PROVEN and indicate the level of EVIDENCE that you have for it. Be BRIEF and mimic the style above.
+
+## (2026-07-02) Typed grader is now the only grader
+
+- grade_typed (the `<final>` typed block) grades every eval path: the ladder, eval.py, eval_claude, eval_orch, eval_single_pm, all routed through one emission helper (eval/emit.py). [evidence: shipped, commit f3277c4; test_answer 11/11 pass]
+- checked before deleting regex: re-graded stored answers with both graders, 4 disagreements out of 75 scored, all 4 the typed grader being right (1 regex false-negative, 3 false-positives off coincidental digits). [evidence: A/B on stored envelopes, n=75]
+- also removed the LLM judge (eval/judge.py) and the evidence_grade regex cross-check, both dead/superseded. [evidence: no live callers]
+
+## (2026-07-02) Why L3/L4 lose to L2 (root causes + branch fixes)
+
+- id4 (favorable): orchestrator hits a KeyError on get_polytope_info(...)['favorable'] (real key is favorable_N) and commits "impossible" instead of recovering; happens at both L3 and L4. [evidence: session logs, repeated]
+- id121 (impossible target): reports a volume from a non-converged solve because compute_for_each pulls ['cy_volume'] and drops the converged=False flag; plain L2 sees the whole result and abstains. [evidence: session logs/ledger]
+- fixes parked on branch fix/l3-failures (unmerged): key-hint on missing dict fields, demote non-converged solver fields under `last_iterate`, finalizer maps an execution error to "none" not "impossible". [evidence: written + behavior unit-checked on _InfoDict; NOT validated to change pass rate]
+- prelim full-corpus ladder run started then killed early: at n~10 (~2.5%), L2 >= L3 >= L4. [evidence: WEAK, not significant]
