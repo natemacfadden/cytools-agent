@@ -77,15 +77,30 @@ def _ids(seq, h11=None, h21=None, favorable=None):
 
 
 # human-read
+# Common wrong guesses -> the real key(s), so a missing-key error can point the
+# model straight at the fix instead of leaving it to re-derive from the list.
+_KEY_HINTS = {
+    "favorable": "'favorable_N' (N lattice) or 'favorable_M' (M lattice)",
+    "vertices": "'n_vertices'",
+    "points": "'n_points'",
+    "euler": "'euler_characteristic'",
+    "chi": "'euler_characteristic'",
+}
+
+
 class _InfoDict(dict):
-    """A result dict that, on a missing key, says which keys ARE available --
-    so a model guessing a field (info['vertices']) gets a pointed error naming
-    the real keys instead of a bare KeyError it has to .keys() its way out of."""
+    """A result dict that, on a missing key, says which keys are available -- so
+    a model guessing a field (info['vertices']) gets a pointed error naming the
+    real keys instead of a bare KeyError it has to .keys() its way out of. For
+    common guesses it also suggests the specific key it likely meant."""
 
     def __missing__(self, key):
-        raise KeyError(
-            f"'{key}' is not a field in this result. Available keys: "
-            f"{', '.join(self.keys())}.")
+        msg = (f"'{key}' is not a field in this result. Available keys: "
+               f"{', '.join(self.keys())}.")
+        hint = _KEY_HINTS.get(str(key).strip().lower())
+        if hint:
+            msg += f" Did you mean {hint}?"
+        raise KeyError(msg)
 
 
 _CACHE   = {} # ks_ind -> vertices (list[list[int]])

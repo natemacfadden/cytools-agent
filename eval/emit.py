@@ -51,9 +51,15 @@ def _finalize_blind(text, question, model, timeout=120):
         "value. Output ONLY one line and nothing else:\n"
         '<final>{"kind": "<int|float|list|bool|impossible|none>", '
         '"value": <v>}</final>\n'
-        "value is a bare number, a JSON array, true/false, or null. Use kind "
-        '"impossible" (value null) if the assistant reports the task has no '
-        'valid answer; "none" (value null) if it did not determine one.')
+        "value is a bare number, a JSON array, true/false, or null.\n"
+        'Use kind "impossible" (value null) ONLY when the assistant '
+        "affirmatively concludes no valid answer exists -- the object is not "
+        "found, the target is unreachable / infeasible, or a solver determined "
+        "there is no solution.\n"
+        'Use kind "none" (value null) when the assistant hit an ERROR, was cut '
+        "off, or otherwise could not complete the computation. A failure to "
+        "compute (an exception, a missing field, an interrupted run) is NOT a "
+        "determination of impossibility -- use \"none\", not \"impossible\".")
     user = (f"QUESTION:\n{question}\n\nASSISTANT ANSWER:\n{text}\n\n"
             "Extract the committed answer. /no_think")
     try:

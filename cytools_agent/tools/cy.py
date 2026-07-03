@@ -340,13 +340,18 @@ def find_kahler_for_divisor_volumes(ks_ind: str,
     root-finder. `target` is a list of divisor volumes, one per basis divisor
     (length = h11).
 
-    Returns a dict: `converged` (bool), `status` (a message that flags
-    non-convergence), `heights`/`t` (the Kahler point found -- the last iterate
-    even if it did not converge), `divisor_volumes` (achieved; ~= target when
-    converged), and `cy_volume` (the CY volume at `t`). When `converged` is
-    false the target was likely unreachable / outside the Kahler cone, so the
-    numbers are not a solution -- report that it could not be found rather than
-    trusting them.
+    Returns a dict with `converged` (bool) and `status` (a message that flags
+    non-convergence). When it converged, the answer fields are at the top level:
+    `heights`/`t` (the Kahler point), `divisor_volumes` (achieved; ~= target),
+    and `cy_volume` (the CY volume at `t`).
+
+    When it did NOT converge the target was likely unreachable / outside the
+    Kahler cone, so there is no solution to report. The same fields are then
+    demoted under `last_iterate` (the stalled point, kept for inspection) and
+    are absent at the top level -- so a bare `result['cy_volume']` raises a
+    pointed error instead of silently handing back a non-solution as if it were
+    the answer. Reach into `['last_iterate']` only if you deliberately want the
+    stalled point; do not report it as the answer.
     """
     from cytools_agent.tools.polytope import _h11_of
     tgt = np.asarray(target, dtype=float)
@@ -377,15 +382,21 @@ def find_kahler_for_divisor_volumes(ks_ind: str,
     h = np.asarray(vf.heights, dtype=float)
     t = np.asarray(vc.proj(h), dtype=float)
     dv = np.asarray(vf.div_vols(h), dtype=float)
+    point = {"heights": h.tolist(), "t": t.tolist(),
+             "divisor_volumes": dv.tolist(), "cy_volume": float(t @ dv / 3.0)}
+    if converged:
+        return _InfoDict({"converged": True, "status": "converged", **point})
+    # not converged: the target is likely unreachable / outside the Kahler cone,
+    # so `point` is not a solution. Demote it under `last_iterate` so grabbing a
+    # bare answer field (e.g. compute_for_each's `...['cy_volume']`) raises a
+    # pointed error rather than committing the stalled value as the answer.
     return _InfoDict({
-        "converged": bool(converged),
-        "status": "converged" if converged else (
+        "converged": False,
+        "status": (
             f"did not converge (finished_reason={vf.finished_reason!r}): the "
-            "target divisor volumes may be unreachable / outside the Kahler "
-            "cone. The values below are the last iterate, not a solution -- "
-            "do not report them as the answer."),
-        "heights": h.tolist(),
-        "t": t.tolist(),
-        "divisor_volumes": dv.tolist(),
-        "cy_volume": float(t @ dv / 3.0),
+            "target divisor volumes are unreachable / outside the Kahler cone, "
+            "so no such Kahler point exists -- the task is infeasible. The "
+            "stalled last iterate is under 'last_iterate' for inspection only; "
+            "do not report it as the answer."),
+        "last_iterate": _InfoDict(point),
     })
