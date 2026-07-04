@@ -42,6 +42,7 @@ from cytools_agent.tools import code as _code
 from eval._harness import run
 from eval.answer import FINAL_INSTRUCTION, grade_typed, parse_final
 from eval.emit import ensure_final
+from eval.nodes import run_node_arm
 
 CORPUS = os.path.join(os.path.dirname(__file__), "pm_corpus.jsonl")
 
@@ -54,6 +55,7 @@ def main():
         sys.exit(1)
     model = args[0]
     raw = "--raw" in args          # L1 baseline: raw cytools, vanilla loop
+    nodes = "--nodes" in args      # experiment A: answers are pointers to nodes
     corpus = args[args.index("--corpus") + 1] if "--corpus" in args else CORPUS
     timeout = int(args[args.index("--timeout") + 1]) \
         if "--timeout" in args else 600
@@ -75,13 +77,18 @@ def main():
             _code.reset_figures()
             t0 = time.monotonic()
             q = rows[i]["question"]
-            ans = ensure_final(
-                run(model, q + FINAL_INSTRUCTION, timeout, raw=raw), q, model)
+            if nodes:                       # experiment A: point at a variable
+                status, ans, final = run_node_arm(
+                    run, model, q, timeout, rows[i]["answer"], raw=raw)
+            else:                           # value arm: model types the number
+                ans = ensure_final(
+                    run(model, q + FINAL_INSTRUCTION, timeout, raw=raw), q, model)
+                status = grade_typed(ans, rows[i]["answer"])
+                final = parse_final(str(ans))
             dt = round(time.monotonic() - t0, 1)
-            status = grade_typed(ans, rows[i]["answer"])
             results.append({"id": i, "rep": rep, "kind": rows[i]["kind"],
                             "status": status, "secs": dt, "answer": ans,
-                            "final": parse_final(str(ans)),
+                            "final": final,
                             "truth": rows[i]["answer"]})
             print(f"\n[{i}.{rep}] {rows[i]['kind']}  {status}  ({dt}s)",
                   flush=True)
