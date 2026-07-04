@@ -32,6 +32,7 @@ dependencies:
     - fanroots
     - cytools
     - mcp        # MCP server (mcp_server.py) exposing the tools to MCP clients
+    - sentence-transformers  # glossary retrieval (RAG) embeddings; pulls torch (default CUDA build). Retrieval defaults to device="cpu"; GPU kept for possible embedder fine-tuning.
     - -e .       # editable self-install (cytools-agent); resolves from repo root
   # Agent / loop dependencies
   - openai
