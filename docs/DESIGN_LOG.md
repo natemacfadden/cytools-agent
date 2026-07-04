@@ -120,3 +120,20 @@ For AI agents: these notes must be MINIMAL, backed by FACTS/EXPERIMENTS, limit n
 - installed sentence-transformers 5.6.0 + torch 2.12.1+cu130 into cytools-agent (GPU build; retrieval will default to device="cpu", GPU kept for possible embedder fine-tuning later). numpy 2.4.6 / numba / cytools unaffected. added sentence-transformers to environment.yml. [evidence: imports + a CPU embed both OK; test_answer still 11/11]
 - plan, measured on retrieval_bench.py: a dense retriever (bge-small-en-v1.5) behind the same retrieve(message, k) -> keys interface, A/B vs keyword; then calibrate a cosine threshold (the off-switch); then hybrid = keyword union dense-above-threshold. bar to beat/hold: keyword recall 79% (exact 100%, paraphrase 20%), false-fire 0%.
 - early signal only, NOT a result: cos("how symmetric is the polytope?", "automorphism group order") = 0.634 with bge-small, i.e. the embedder does connect a paraphrase keyword misses. still unproven that dense/hybrid beats keyword without regressing exact-match or over-firing on the h11-filter negatives. [evidence: one cosine pair, not the bench]
+
+## (2026-07-03) RAG result: hybrid wins, transformer alone does not
+
+Three retrievers now share the retrieve(message, k) -> keys shape in retrieval_bench.py: regex (the string matcher, = glossary_context's existing selection), transformer (bge-small-en-v1.5 on CPU, cosine to each entry's "term: definition", keep entries with sim >= threshold, top-k), and hybrid (regex union transformer, regex first, capped at k). Threshold is a similarity bar: higher = stricter (fewer fire), not looser. Added a --sweep mode that encodes each query once and re-applies each cutoff to the cached scores.
+
+Threshold sweep (transformer / hybrid), regex reference = recall 79%, paraphrase 20%, false-fire 0%:
+- transformer alone: at any cutoff loose enough to hold recall (0.40-0.65) it false-fires 25-100%; the cutoffs that reach 0% false-fire (0.75+) crater recall to 48% then 18%. No good operating point on its own.
+- hybrid: recall stays ~82-87% across 0.40-0.75 because regex is a floor; raising the bar only sheds the transformer's marginal guesses. 0.75 is the lowest bar with 0% false-fire.
+
+Head-to-head at the calibrated 0.75 (all three at 0% false-fire, so apples-to-apples):
+- regex:       exact 100%, paraphrase 20%, corpus 84%, overall 79%
+- transformer: exact  80%, paraphrase 40%, corpus 48%, overall 48%
+- hybrid:      exact 100%, paraphrase 50%, corpus 84%, overall 82%
+
+Verdict: hybrid is strictly regex-or-better on every bucket -- it keeps regex's exact/corpus and adds a paraphrase lift (20 -> 50%) with no over-fire. The transformer's only real contribution is as a paraphrase booster bolted onto regex, not a replacement (alone it even misses an exact term). So retrieval helps, but modestly and only as hybrid. Set DENSE_THRESHOLD = 0.75 in the bench.
+
+Caveats: 0.75 is calibrated on these 128 cases (only 10 paraphrases), so it is approximate, not a hard constant; a held-out set / more negatives would firm it up before wiring hybrid into the product glossary_context. The 0.70 vs 0.75 knob: 0.70 buys +3 recall and +10 paraphrase for 1 of 8 negatives firing (a false-fire here just injects one irrelevant definition, not a wrong answer). [evidence: python -m eval.retrieval_bench, python -m eval.retrieval_bench --sweep]

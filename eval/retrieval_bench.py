@@ -188,6 +188,49 @@ def keyword_retrieve(message, k=3):
     return set(sorted(_g._matched_keys(message), key=lambda s: -len(s))[:k])
 
 
+# --- dense (embedding) retriever -------------------------------------------
+# bge-small-en-v1.5 on CPU. Embed each glossary entry's "term: definition" once,
+# cosine to the query, keep entries above THRESHOLD (the off-switch), top-k.
+_EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+_BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+DENSE_THRESHOLD = 0.75            # cosine cutoff, calibrated on the labeled set
+                                  # (sweep: 0.75 is the lowest bar with 0% false-fire)
+
+_model = None
+_entry_keys = None
+_entry_vecs = None
+
+
+def _ensure_index():
+    """Load the model (CPU) and embed the glossary entries once, lazily -- so a
+    keyword-only run never imports torch."""
+    global _model, _entry_keys, _entry_vecs
+    if _model is not None:
+        return
+    from sentence_transformers import SentenceTransformer
+    _model = SentenceTransformer(_EMBED_MODEL, device="cpu")
+    _entry_keys = sorted(_g._GLOSSARY)
+    passages = [f"{k}: {_g._GLOSSARY[k][0]}" for k in _entry_keys]  # term: definition
+    _entry_vecs = _model.encode(passages, normalize_embeddings=True)
+
+
+def dense_retrieve(message, k=3, threshold=DENSE_THRESHOLD):
+    _ensure_index()
+    q = _model.encode([_BGE_QUERY_PREFIX + message], normalize_embeddings=True)[0]
+    sims = _entry_vecs @ q                       # cosine (vectors are unit-norm)
+    ranked = sorted(zip(sims.tolist(), _entry_keys), reverse=True)
+    return {key for sim, key in ranked[:k] if sim >= threshold}
+
+
+def hybrid_retrieve(message, k=3, threshold=DENSE_THRESHOLD):
+    """Both, together: keyword matches first (precision floor), then fill with
+    dense hits above threshold, capped at k."""
+    kw = keyword_retrieve(message, k)
+    dn = dense_retrieve(message, k, threshold)
+    merged = list(kw) + [x for x in dn if x not in kw]
+    return set(merged[:k])
+
+
 def _validate_labels(cases):
     keys = set(_g._GLOSSARY)
     bad = {t for _, exp, _ in cases for t in exp if t not in keys}
@@ -230,11 +273,64 @@ def evaluate(retrieve, cases=None, k=3, show="none"):
             "by_bucket": {b: tally[b] for b in buckets}}
 
 
-# retrievers under test -- add the RAG one here (same signature) when it exists
-RETRIEVERS = {"keyword": keyword_retrieve}
+# retrievers under test -- all share the retrieve(message, k) shape.
+# "regex" = the string/keyword matcher; "transformer" = the embedding retriever.
+RETRIEVERS = {"regex": keyword_retrieve,
+              "transformer": dense_retrieve,
+              "hybrid": hybrid_retrieve}
+
+
+def sweep(thresholds=None, k=3):
+    """Sweep the transformer's cosine cutoff and show, at each threshold, the
+    recall / paraphrase-recall / false-fire for the transformer alone and for
+    hybrid (regex union transformer). Encodes every query once, then re-applies
+    each threshold to the cached similarity scores -- so the sweep is cheap."""
+    _ensure_index()
+    thresholds = thresholds or [round(0.40 + 0.05 * i, 2) for i in range(9)]  # .40-.80
+    cases = all_cases()
+    _validate_labels(cases)
+
+    precomp = []                       # (expected, bucket, ranked[(sim,key)], regex_set)
+    for msg, exp, bucket in cases:
+        q = _model.encode([_BGE_QUERY_PREFIX + msg], normalize_embeddings=True)[0]
+        ranked = sorted(zip((_entry_vecs @ q).tolist(), _entry_keys), reverse=True)
+        precomp.append((exp, bucket, ranked, keyword_retrieve(msg, k)))
+
+    def score(make_set):
+        pos = hits = para_h = para_t = fires = neg = 0
+        for exp, bucket, ranked, kw in precomp:
+            got = make_set(ranked, kw)
+            if bucket == "negative":
+                neg += 1
+                fires += bool(got)
+                continue
+            pos += 1
+            hits += (exp <= got)
+            if bucket == "paraphrase":
+                para_t += 1
+                para_h += (exp <= got)
+        return hits / pos, para_h / para_t, fires / neg
+
+    reg = score(lambda ranked, kw: kw)
+    print(f"regex-only reference:  recall {reg[0]:.0%}   paraphrase {reg[1]:.0%}   "
+          f"false-fire {reg[2]:.0%}\n")
+    print("          transformer alone           hybrid (regex + transformer)")
+    print("thresh  recall  paraphr  false-fire   recall  paraphr  false-fire")
+    for t in thresholds:
+        tr = score(lambda ranked, kw, t=t: {key for sim, key in ranked[:k] if sim >= t})
+
+        def hybrid_set(ranked, kw, t=t):
+            dn = [key for sim, key in ranked[:k] if sim >= t]
+            return set((list(kw) + [x for x in dn if x not in kw])[:k])
+        hy = score(hybrid_set)
+        print(f"{t:>5.2f}   {tr[0]:>5.0%}   {tr[1]:>5.0%}    {tr[2]:>6.0%}     "
+              f"{hy[0]:>5.0%}   {hy[1]:>5.0%}    {hy[2]:>6.0%}")
 
 
 def main():
+    if "--sweep" in sys.argv:
+        sweep()
+        return
     show = "all" if "--detail" in sys.argv else ("misses" if "--misses" in sys.argv else "none")
     for name, fn in RETRIEVERS.items():
         print(f"###### retriever: {name}  ({len(all_cases())} cases) ######")
