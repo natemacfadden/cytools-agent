@@ -42,7 +42,7 @@ from cytools_agent.tools import code as _code
 from eval._harness import run
 from eval.answer import FINAL_INSTRUCTION, grade_typed, parse_final
 from eval.emit import ensure_final
-from eval.nodes import run_node_arm
+from eval.nodes import run_node_arm, run_result_node_arm, run_watch_arm
 
 CORPUS = os.path.join(os.path.dirname(__file__), "pm_corpus.jsonl")
 
@@ -55,7 +55,9 @@ def main():
         sys.exit(1)
     model = args[0]
     raw = "--raw" in args          # L1 baseline: raw cytools, vanilla loop
-    nodes = "--nodes" in args      # experiment A: answers are pointers to nodes
+    nodes = "--nodes" in args      # experiment A: model names a variable, points at it
+    rnodes = "--rnodes" in args    # experiment b: harness-captured result nodes
+    watch = "--watch" in args      # experiment c: value mode + silent grounding check
     corpus = args[args.index("--corpus") + 1] if "--corpus" in args else CORPUS
     timeout = int(args[args.index("--timeout") + 1]) \
         if "--timeout" in args else 600
@@ -77,7 +79,14 @@ def main():
             _code.reset_figures()
             t0 = time.monotonic()
             q = rows[i]["question"]
-            if nodes:                       # experiment A: point at a variable
+            grounded = None
+            if watch:                       # experiment c: value + grounding check
+                status, ans, final, grounded = run_watch_arm(
+                    run, model, q, timeout, rows[i]["answer"], raw=raw)
+            elif rnodes:                    # experiment b: harness-captured node
+                status, ans, final = run_result_node_arm(
+                    run, model, q, timeout, rows[i]["answer"], raw=raw)
+            elif nodes:                     # experiment A: point at a variable
                 status, ans, final = run_node_arm(
                     run, model, q, timeout, rows[i]["answer"], raw=raw)
             else:                           # value arm: model types the number
@@ -88,7 +97,7 @@ def main():
             dt = round(time.monotonic() - t0, 1)
             results.append({"id": i, "rep": rep, "kind": rows[i]["kind"],
                             "status": status, "secs": dt, "answer": ans,
-                            "final": final,
+                            "final": final, "grounded": grounded,
                             "truth": rows[i]["answer"]})
             print(f"\n[{i}.{rep}] {rows[i]['kind']}  {status}  ({dt}s)",
                   flush=True)

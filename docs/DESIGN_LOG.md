@@ -157,3 +157,80 @@ Interim observation (value arm ~half done, 25/29 pass): every failure so far is 
 Key conclusion (why the benchmark cannot distinguish A here, and why that is fine): A's measurable accuracy benefit is proportional to the fabrication rate, which is ~0 for a capable model on single-step questions. That makes A look like a weak-model crutch when measured as a pass-rate delta. But that is the wrong lens. A's real value is a STRUCTURAL GUARANTEE: the reported value cannot differ from the computed value because it IS the computed value (correctness-by-construction), which is the frontier-transferable framing (ground the answer in tool output) rather than a crutch. Decision: adopt A as a guarantee, not as an accuracy booster; a ~0 delta on this set is expected and acceptable. Where the delta WOULD show (and where A earns its keep as insurance): weaker models, long multi-step chains, and aggregations (the id121 compute_for_each flag-drop).
 
 Next (deferred, not yet run): confirm the wash on this run, then rerun the same 22 cases with a weaker model (qwen3:4b or ministral-3b). If A's delta grows as capability drops, that confirms the reading -- A is a crutch as a booster but a cheap guarantee worth keeping regardless.
+
+## (2026-07-04) Experiment A RESULT: the guarantee is not free -- pointer integrity costs more than the fabrication it prevents
+
+qwen3:14b, 22 single-step corpus.jsonl cases, 3 reps/arm:
+- value arm (model types the number):  59/66 = 89%
+- node  arm (model points at a var):    47/66 = 71%
+
+A did not break even -- it LOST 18 points. This reverses the "free guarantee" expectation. Node-arm failure breakdown (19 fails vs the value arm's 7):
+- 7 dangling pointers: the model emitted {"node":"answer"} but never created an `answer` variable in _code._NS (it printed the result, named it differently, or the assignment never ran). 6 of the 7 are PURE mechanism loss -- the value arm got the same (id,rep) right by just typing the number. (Namespace sharing verified: eval._harness.run is same-process signal.alarm, run_python execs into module-global _code._NS, so a dangling pointer really means the var was never bound, not harness isolation.)
+- 4 resolved-but-wrong: `answer` existed but held an intermediate (id5 -> [2,2] instead of the 10-element genera list).
+- 7 gave up (impossible/none): the node contract appears to distract the model into bailing more than the value arm did.
+- 1 other.
+
+Why the loss and no offsetting gain: the fabrication A is designed to prevent (computed-right-but-typed-wrong) was ~0 on this capable model -- every value-arm failure was a genuine computation or give-up, never a transcription slip. So A prevented nothing here while introducing pointer-integrity failures the model hits often. The premise (ground the reported value in the computation) is still sound; the BINDING is the flaw: a model-named free variable is fragile discipline. The robust redesign is a HARNESS-CAPTURED node -- bind to the actual output of the final run_python / tool call, which cannot dangle -- rather than a variable the model must remember to create and name consistently. (This vindicates the tool-call-id option first dismissed for being less clean: less clean, but no dangling.) Fairness note: the node arm only backstops the blind finalizer when NO block is emitted; a dangling pointer IS a block, so it is not recovered from prose the way the value arm effectively can be -- that asymmetry is part of the 18-point gap and is inherent to A's contract.
+
+Verdict for now: do NOT adopt the model-named-variable form of A; it is net-negative for a capable model. Keep the idea alive only in the harness-captured form. Weaker-model (qwen3:4b) A/B was started to test whether a less capable model fabricates enough for A to help, but was stopped after only a partial value arm (no node arm) -- no conclusion drawn. [evidence: scratch/A_before_corpus.json, scratch/A_after_corpus.json]
+
+## (2026-07-05) Experiment (b): harness-captured result nodes (the fixed pointer)
+
+Motivation: the model-named form failed on pointer INTEGRITY (dangling), not on the premise. And with the orchestrator and the model-named pointer both gone, the only remaining trust systems are offline typed grading + real tools + the replayable save_history trace -- there is no runtime hard guarantee. (b) is the attempt to add one that does not dangle.
+
+Fix: the HARNESS numbers the nodes, the model only SELECTS. run_python already evals its last bare expression Jupyter-style (and even surfaces computed scalars the model forgot to print -- code.py cites the [104] trilayer_count=7->0 fabrication). So the value already exists in-harness; (b) just gives it an addressable identity. New: code.CAPTURE_RESULT_NODES (off by default, production unchanged) makes run_python store each last-expression value in code._NODES and echo "[node N] <value>". The model ends its reply with <final>{"kind":..., "node": N}, pointing at a number it was SHOWN. It selects from what exists, so the pointer cannot dangle -- which was the entire 18-point loss. Out-of-range id -> FAIL (a hallucinated id, expected to be far rarer than an invented variable name). eval/nodes.py adds RESULT_NODE_FINAL_INSTRUCTION + resolve_result_and_grade + run_result_node_arm; eval_single_pm gets --rnodes. Kept isolated + reversible (flag defaults off).
+
+Sanity: capture + resolver unit-checked (numpy coercion, out-of-range->FAIL, wrong-node->FAIL); one live case (id2, truth 16) -> model ended with a bare expr, saw [node 0], pointed at it, PASS.
+
+Running: harness-node arm (--rnodes) on the same 22 cases x3 reps, qwen3:14b, compared against the REUSED value-arm results (A_before_corpus.json, 59/66=89%) and the model-named arm (A_after_corpus.json, 47/66=71%). The test: does (b) at least break even with value (the "free guarantee" it should be, since it cannot dangle), and does it beat the model-named 71%? [evidence to come: scratch/A_rnodes_corpus.json]
+
+## (2026-07-05) Experiment (b) RESULT: fixed the dangling, not the burden -- and the real endpoint is verify, not relocate
+
+qwen3:14b, same 22 cases, 3 reps/arm:
+- value  (types the number):      59/66 = 89%
+- named  (points at a variable):  47/66 = 71%
+- harness(points at [node N]):    54/66 = 82%
+
+Harness nodes recovered 11 of the 18 points the model-named form lost -- the diagnosis was right, harness-numbered nodes cannot dangle. But (b) still costs 7 points vs just typing the number. Crucial: the guarantee itself is FLAWLESS -- resolved-wrong = 0, i.e. every time the model pointed at a node that existed, the value was correct. All 12 harness failures are id-SELECTION, not mechanism: 10 bad-id (pointed at a node number that was never produced -- e.g. node 36 when a handful existed; id47 even wrote "node": 3.666667, putting the answer VALUE as the id, and 3.666667 was the correct answer), 1 gave-up, 1 other. (The stored `answer` is only the final message, so [node N] echoes -- which live in the run_python tool outputs -- do not appear there; that the arm resolved 54/66 with 0 wrong confirms the nodes were shown and the store works.)
+
+Conclusion: pointing-by-id just trades the naming-discipline burden for a lighter counting-discipline burden (track the node counter across a multi-call session). A 14B model still slips. Every scheme that makes the model RELOCATE its answer into a pointer costs accuracy, because the one thing it is best at is computing and stating the number (89%). So the ergonomically-free guarantee is to stop relocating and VERIFY instead:
+
+(c) let the model type the number as it naturally does; the harness captures the node values anyway; the guarantee becomes "a committed value must match some captured node" -- you may only report a number you actually computed, and a value appearing in no node is flagged as ungrounded. This keeps the value arm's 89% and adds a real (if softer: "computed somewhere" vs "is exactly this node") grounding guarantee with zero pointing burden. That is the next thing to try. [evidence: scratch/A_rnodes_corpus.json]
+
+Trust-system status after this arc: offline typed grading (strong) + real tools & guardrails + replayable save_history trace remain the live systems; (c) would add a cheap runtime grounding check on top without the accuracy cost that killed (a) and dinged (b).
+
+## (2026-07-06) Experiment (c) built: the watchful eye (verify, don't relocate)
+
+Design realized: let the model answer in its NATURAL value mode (types the number) so there is no addressing burden and no regression; the harness silently records the values it computes and flags whether the committed value is GROUNDED (equals a captured value). Only report a number you actually computed.
+
+Mechanism (code.py, both flags default OFF so production is unchanged): CAPTURE_RESULT_NODES records into _NODES (a) each run_python last bare-expression value and (b) anything the model prints -- a _capturing_print installed into the run_python namespace only while capturing, so a model that prints its answer grounds just like one that leaves a bare expression. ECHO_NODE_IDS stays OFF for (c) (silent: run_python output is byte-identical to the value arm), ON only for (b). eval/nodes.py: run_watch_arm answers with the plain value FINAL_INSTRUCTION, grades pass/fail with the same grade_typed (so pass rate should match the value arm's 89% up to temperature), and computes grounded = any(check(final, node) for node in _NODES) reusing the exact typed-equality logic. eval_single_pm gets --watch and records a per-answer `grounded`.
+
+Verified: silent capture leaves run_python output normal ("4\n"), print(len(...)) and a bare 3+3 both captured, a real value grounds, a fabricated 99 does NOT (the eye fires); production run_python with flags off installs no capturing print and records nothing; test_answer 11/11.
+
+Running: --watch, same 22 cases x3, qwen3:14b. Reading the result: (1) pass rate ~= value 89% (confirm no regression); (2) grounding rate on CORRECT answers (want high -> low false alarms); (3) of WRONG answers, how many are ungrounded (would be flagged) vs grounded (genuine compute error, which grounding cannot catch -- that is problem B). [evidence to come: scratch/A_watch_corpus.json]
+
+Ledger implication (per NM): with (c) as the live watchful eye and the save_history trace for audit, the old write-only ledger (cytools_agent/tools/ledger.py, dead since the orchestrator was removed) is fully superseded and can be cut. Do this AFTER (c)'s result confirms no regression; remove ledger.py + the wrap layer in tools/__init__.py, keeping the _NS reference-injection line.
+
+## (2026-07-06) Experiment (c) RESULT: accuracy-free, but the passive signal is too noisy to trust
+
+qwen3:14b, same 22 cases, 3 reps:
+- value (types number):       59/66 = 89%
+- watch (types number + eye):  61/66 = 92%  (the +3 is within run-to-run noise)
+
+No regression -- the watchful eye is accuracy-free, which (a) at -18 and (b) at -7 could not manage. That half worked. But the grounding signal itself is unusable as-is:
+- CORRECT answers: only 13/61 grounded -> a 79% FALSE-ALARM rate. The eye would flag most correct answers as suspect.
+- WRONG answers: 4/5 ungrounded (would be flagged), but 1 wrong-but-grounded (id2: committed 480, computed 480 as a wrong intermediate) -- grounding cannot catch a genuine compute error (that is B).
+
+Two causes of the false alarms, both from exact-match being too strict: ROUNDING (id117 reported 2223.2 but computed 2223.199, so no exact match) and DERIVATION (the model prints a structure/intermediate, then commits a count or element it derived, which never appears verbatim as a captured value).
+
+Arc conclusion: for a capable model that barely fabricates, a runtime grounding guarantee is either accuracy-costly (relocation: a -18, b -7) or accuracy-free but unreliable (c: passive exact-match misses the committed number 79% of the time). None is a clean win at 14B. The live trust story stays: offline typed grading + real tools/guardrails + replayable save_history trace. The dead ledger removal is independent of all this and still stands.
+
+Possible salvage of (c) (not yet run): FUZZY grounding -- accept a committed value if it is a rounding of, or is contained in (an element of), a captured value. Needs the captured _NODES logged per run to tune the match, then one re-run. Would likely collapse the false-alarm rate; open question whether it is worth it given (c) already costs nothing and the guarantee is a production-only safety property this model rarely needs.
+
+## (2026-07-06) Closing the runtime-truth arc (dropped)
+
+Ran the fuzzy-grounding (c) once more with the captured values logged. Partial (46/66): still ~71% false-alarm on correct answers (12/41 grounded), barely better than exact-match. The diagnosis, now visible from the logged nodes: most correct answers captured ZERO nodes -- because the model answers many questions by calling the CURATED TOOLS directly (is_favorable is a field of get_cy_info; the triple-intersection list comes straight from a tool), which never touch run_python, the only place (c) hooked capture. So the false alarms were a capture-COVERAGE problem, not a match-strictness one. The real fix would be to capture at the TOOL boundary too -- exactly what ledger.wrap already is -- and flatten dict results so a committed field-value grounds against the tool dict it came from.
+
+Decision (NM): drop the runtime-truth pursuit. Not worth more effort for a capable model that barely fabricates. Final take on the whole arc (a model-named pointer -18, b harness pointer -7, c passive eye: accuracy-free but coverage-limited): a runtime grounding guarantee is either accuracy-costly (relocation) or, if free, needs capture at the tool boundary to be reliable -- more machinery than the payoff justifies here. The live trust story stands as-is: offline typed grading (strong) + real tools & guardrails + the replayable save_history trace for audit. If anyone revisits, the one good lead is: feed real tool-return objects (via the ledger wrap) into a grounding store and flatten dicts -- that reframes the ledger as a live capture backbone rather than dead code.
+
+Repo state left behind: the experiment scaffolding (code.py CAPTURE_RESULT_NODES/ECHO_NODE_IDS + capture, eval/nodes.py arms, eval_single_pm --nodes/--rnodes/--watch) is off by default and harmless; keep as documented exploration or trim later. The bare-expression capture in run_python is inert unless a flag is set.
