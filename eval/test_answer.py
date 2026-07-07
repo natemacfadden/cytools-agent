@@ -15,7 +15,8 @@ def _c(kind, value, truth):
     return check({"kind": kind, "value": value}, truth)
 
 
-# -- parse_final ------------------------------------------------------------
+# parse_final
+# -----------
 def test_parse_basic():
     assert parse_final('...<final>{"kind":"int","value":5}</final>') == \
         {"kind": "int", "value": 5}
@@ -42,7 +43,8 @@ def test_parse_malformed_or_absent():
                        '<final>{oops</final>')["value"] == 5
 
 
-# -- int --------------------------------------------------------------------
+# int
+# ---
 def test_int():
     assert _c("int", 5, 5)
     assert _c("int", 5.0, 5)         # 5.0 counts as 5
@@ -53,7 +55,8 @@ def test_int():
     assert not _c("int", None, 5)
 
 
-# -- float (checked to the truth's precision) -------------------------------
+# float (checked to the truth's precision)
+# ----------------------------------------
 def test_float():
     assert _c("float", 1.46, 1.46)
     assert _c("float", 1.4583, 1.46)     # rounds to 1.46
@@ -63,7 +66,8 @@ def test_float():
     assert _c("float", 1.25, 1.25)
 
 
-# -- bool -------------------------------------------------------------------
+# bool
+# ----
 def test_bool():
     assert _c("bool", True, True)
     assert _c("bool", False, False)
@@ -73,7 +77,8 @@ def test_bool():
     assert not _c("int", 1, True)
 
 
-# -- list / tuple (entry order arbitrary, entry content strict) -------------
+# list / tuple (entry order arbitrary, entry content strict)
+# ----------------------------------------------------------
 def test_list():
     assert _c("list", [1, 2, 3], [1, 2, 3])
     assert _c("list", [3, 2, 1], [1, 2, 3])          # order-insensitive
@@ -84,7 +89,8 @@ def test_list():
     assert not _c("list", [[2, 1], [3, 4]], [[1, 2], [3, 4]])  # entry perm bad
 
 
-# -- single-value column unwraps to a scalar (the id94 fix) -----------------
+# single-value column unwraps to a scalar (the id94 fix)
+# ------------------------------------------------------
 def test_scalar_unwrap():
     # a one-element map column is the scalar answer, however it was typed
     assert _c("list", [False], False)        # is_favorable_M for one polytope
@@ -97,14 +103,16 @@ def test_scalar_unwrap():
     assert _c("list", [1, 2, 3], [1, 2, 3])  # multi-value list unchanged
 
 
-# -- IMPOSSIBLE negative test ----------------------------------------------
+# impossible negative test
+# ------------------------
 def test_impossible():
     assert _c("impossible", None, "IMPOSSIBLE")
     assert not _c("int", 0, "IMPOSSIBLE")            # a number is not "reported impossible"
     assert not _c("impossible", None, 5)             # impossible claim vs real truth
 
 
-# -- build_final round-trips through parse_final ----------------------------
+# build_final round-trips through parse_final
+# -------------------------------------------
 def test_build_roundtrip():
     for kind, value in [("int", 5), ("float", 1.46), ("list", [[1, 2], [3, 4]]),
                         ("bool", True), ("impossible", None)]:
