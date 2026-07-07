@@ -86,13 +86,10 @@ _CTX_PROBED = set()   # (base_url, model) pairs already probed this process
 
 
 def _warn_if_truncating(client, model):
-    """One-time canary against silent context truncation: the OpenAI-compat
-    endpoint cannot request num_ctx, so a server left at Ollama's vram-based
-    default (often 4096) FRONT-truncates long sessions -- losing the system
-    prompt first, which looks exactly like model stupidity. Send one long
-    prompt and check how many tokens the server actually evaluated; warn
-    loudly if it capped. (setup.sh configures the service correctly; this
-    catches every other server.)"""
+    """One-time canary against silent context truncation. The OpenAI-compat
+    endpoint can't set num_ctx, so a server at Ollama's default (often 4096)
+    front-truncates long sessions, dropping the system prompt first. Probe
+    with one long prompt and warn if the server capped the tokens seen."""
     key = (str(getattr(client, "base_url", "")), model)
     if key in _CTX_PROBED:
         return
@@ -130,7 +127,7 @@ class Agent:
     Stateful conversation over a tool-calling model. .chat(text) runs the
     tool loop and returns the final answer; history accumulates across calls.
     verbosity: 0 silent, 1 tags, >=2 full payloads. message_hook, if given, is
-    called on each user message and its (string) return is appended to it --
+    called on each user message and its (string) return is appended to it,
     used to auto-inject glossary context so the model needn't ask for it.
     """
     def __init__(self, client, model, system_prompt, tools, tool_impls,
@@ -163,9 +160,8 @@ class Agent:
                 model=self.model, messages=self.messages, tools=self.tools
             ).choices[0].message
             self.timing["model"] += time.monotonic() - _t
-            # normalize to a plain dict so history holds one type (the SDK
-            # object's shape varies across versions; save_history and replay
-            # then need no dual-type handling)
+            # normalize to a plain dict so history holds one type; the SDK
+            # object's shape varies across versions
             self.messages.append(
                 msg.model_dump(exclude_none=True)
                 if hasattr(msg, "model_dump") else msg)
@@ -194,9 +190,8 @@ class Agent:
                           if self.verbosity >= 2
                           else f"  -> (recovered) {fb['name']}")
 
-                # the model wrote the tool call as text, not a real tool_call,
-                # so rebuild it as one -- else the result below has nothing to
-                # attach to and it just re-issues the same call
+                # the model wrote the call as text, not a real tool_call, so
+                # rebuild it as one; else the result below can't attach to it
                 call_id = f"fallback_{step}"
                 self.messages[-1] = {
                     "role": "assistant",
@@ -213,7 +208,7 @@ class Agent:
                 final = _strip_template_tags(msg.content or "")
                 if not final.strip():
                     # newer Ollama builds put qwen3's thinking in a separate
-                    # `reasoning` field and may leave content EMPTY; an empty
+                    # `reasoning` field and may leave content empty; an empty
                     # final answer is never right, so nudge instead of
                     # returning it (bounded: two nudges per turn)
                     if self._empty_nudges < 2:

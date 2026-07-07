@@ -31,7 +31,7 @@ import cytools
 # local imports
 from cytools_agent.tools._synonyms import forgive_kwargs
 
-# keys/attrs that mean "the id" -- so a model that treats a fetched id as a
+# keys/attrs that mean "the id", so a model that treats a fetched id as a
 # record (polytopes[0]['id'], .ks_ind) gets the id back instead of an opaque
 # "string indices must be integers".
 _ID_KEYS = {"id", "ks_ind", "ks", "polytope_id", "poly_id", "pid", "name"}
@@ -40,7 +40,7 @@ _ID_KEYS = {"id", "ks_ind", "ks", "polytope_id", "poly_id", "pid", "name"}
 # human-read
 class _PolytopeId(str):
     """A polytope id string that also answers dict-/attribute-style id access by
-    returning ITSELF -- fetch_polytopes returns these, so polytopes[0]['id'] (or
+    returning itself: fetch_polytopes returns these, so polytopes[0]['id'] (or
     .ks_ind) just works. It is a str everywhere else; character indexing and
     slicing are unchanged. A non-id string key points the model at the data tool."""
 
@@ -62,7 +62,7 @@ class _PolytopeId(str):
 
 def _ids(seq, h11=None, h21=None, favorable=None):
     """Wrap fetched ids so dict-/attr-style id access is forgiven. If the query
-    matched NOTHING, raise a pointed error (instead of returning [] that the
+    matched nothing, raise a pointed error (instead of returning [] that the
     caller then explodes on with polytope_ids[0] -> IndexError)."""
     seq = list(seq)
     if not seq:
@@ -89,7 +89,7 @@ _KEY_HINTS = {
 
 
 class _InfoDict(dict):
-    """A result dict that, on a missing key, says which keys are available -- so
+    """A result dict that, on a missing key, says which keys are available, so
     a model guessing a field (info['vertices']) gets a pointed error naming the
     real keys instead of a bare KeyError it has to .keys() its way out of. For
     common guesses it also suggests the specific key it likely meant."""
@@ -105,37 +105,37 @@ class _InfoDict(dict):
 
 _CACHE   = {} # ks_ind -> vertices (list[list[int]])
 _CIDS    = {} # ks_ind -> content id: sha256 of the affine normal form, so the
-              # name is invariant under GL(n,Z) x Z^n relabeling -- a durable,
+              # name is invariant under GL(n,Z) x Z^n relabeling: a durable,
               # database-independent identity. Computed lazily (~100 ms each,
               # PALP-bound) and memoized here + persisted with the cache.
 _FETCHED = {} # (h11, h21) -> {"count": int, "complete": bool, "ids": [...]}.
-              # "ids" is the DB-ORDER id list this query has fetched (a
-              # contiguous prefix from index 0). Serving a query from the
-              # cache MUST slice this list -- reconstructing the order by
-              # sorting every cached id broke "the first N": an (h11, h21)-
-              # specific or favorable fetch caches ids BEYOND the broad
-              # prefix, and they sort into the middle (measured: pm_corpus
-              # id9's "first 100 at h11=4" silently became a different 100
-              # as the day's runs polluted the cache, flipping its answer).
+              # "ids" is the DB-order id list this query has fetched (a
+              # contiguous prefix from index 0). Serving from the cache must
+              # slice this list: reconstructing the order by sorting every
+              # cached id broke "the first N", since an (h11, h21)-specific or
+              # favorable fetch caches ids beyond the broad prefix and they
+              # sort into the middle (measured: pm_corpus id9's "first 100 at
+              # h11=4" silently became a different 100 as cache pollution
+              # flipped its answer).
 
 # Optional on-disk persistence of the (real) fetched polytopes, so repeated
-# runs do not re-hit the Kreuzer-Skarke database. A DEVELOPMENT feature,
-# DISABLED by default: it grows without bound (measured: 33 MB in a day of
+# runs do not re-hit the Kreuzer-Skarke database. A development feature,
+# disabled by default: it grows without bound (measured: 33 MB in a day of
 # eval work) and end users should not accumulate that silently. Opt in by
-# setting CYTOOLS_AGENT_KS_CACHE to a file path -- the eval harnesses do
-# (they re-run the same queries constantly and the savings are large). The
-# in-process memory cache always works either way, and the politeness guards
-# (_ks_guard) bound the database load of cacheless sessions.
+# setting CYTOOLS_AGENT_KS_CACHE to a file path (the eval harnesses do, since
+# they re-run the same queries constantly). The in-process memory cache always
+# works either way, and the politeness guards (_ks_guard) bound the database
+# load of cacheless sessions.
 _REPO = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _DISK = os.environ.get("CYTOOLS_AGENT_KS_CACHE", "")
 
-# Optional READ-ONLY trusted base layer. Loaded first and NEVER written, so no
-# run -- including an untrusted model-driven eval -- can poison the data the
-# old corpus depends on (regression protection). The writable overlay (_DISK)
-# then holds only NEWLY discovered polytopes; reads merge base+overlay, writes
-# touch the overlay only. This is how we BOTH protect the trusted census AND
-# keep exposing the ability to discover new polytopes.
+# Optional read-only trusted base layer. Loaded first and never written, so no
+# run (including an untrusted model-driven eval) can poison the data the old
+# corpus depends on (regression protection). The writable overlay (_DISK) then
+# holds only newly discovered polytopes; reads merge base+overlay, writes touch
+# the overlay only. This both protects the trusted census and keeps exposing
+# the ability to discover new polytopes.
 _BASE = os.environ.get("CYTOOLS_AGENT_KS_BASE", "")
 _BASE_KEYS = set()        # ks_inds loaded from the base -> excluded from writes
 _BASE_FETCHED = set()     # (h11, h21) fetch keys loaded from the base
@@ -144,9 +144,9 @@ _BASE_FETCHED = set()     # (h11, h21) fetch keys loaded from the base
 # Cache format version. Bumped when the id-assignment semantics change; the
 # loader and the merge refuse data from any other version, so a long-running
 # process with older code in memory (a stale Jupyter kernel, an old MCP
-# server) can clobber the file but can never silently poison a new process
-# -- measured: a stale writer relabeled ids onto different geometry and
-# flipped 8 corpus answers. v3 adds content ids ("cids").
+# server) can clobber the file but can never silently poison a new process.
+# Measured: a stale writer relabeled ids onto different geometry and flipped
+# 8 corpus answers. v3 adds content ids ("cids").
 _FORMAT = 3
 
 
@@ -181,9 +181,9 @@ def _parse_fetched(d):
 # human-read
 def _spot_check_ok():
     """Recompute a few stored content ids from the stored geometry; False on
-    any mismatch (the file is corrupt -- trust none of it). ~1 s at 10 samples.
+    any mismatch (the file is corrupt, trust none of it). ~1 s at 10 samples.
     Catches the measured ~17%-corruption incident with ~84% probability per
-    load; the merge-side conflict detector covers ALL shared keys on save."""
+    load; the merge-side conflict detector covers all shared keys on save."""
     import random as _random
     import hashlib
     import numpy as np
@@ -212,7 +212,7 @@ def _prune_dangling():
 
 # human-read
 def _load_disk_cache():
-    # the read-only trusted base FIRST (its keys are excluded from writes), so
+    # the read-only trusted base first (its keys are excluded from writes), so
     # it can never be overwritten by the overlay or by any run
     base = _read_cache_file(_BASE)
     if base is not None:
@@ -222,7 +222,7 @@ def _load_disk_cache():
         for key, v in _parse_fetched(base):
             _FETCHED[key] = v
             _BASE_FETCHED.add(key)
-    # then the writable overlay -- it adds only what the base does not already
+    # then the writable overlay: it adds only what the base does not already
     # have (base entries are authoritative, so the trusted census stands)
     overlay = _read_cache_file(_DISK)
     if overlay is not None:
@@ -247,10 +247,10 @@ def _load_disk_cache():
 
 # human-read
 def _save_disk_cache():
-    """Persist the cache, MERGING with what is on disk first -- several
+    """Persist the cache, merging with what is on disk first: several
     processes (an agent session + a research script) share this file, and a
     blind rewrite would discard whichever fetches the other process made
-    since our load. Keep whichever side knows a LONGER prefix per query."""
+    since our load. Keep whichever side knows a longer prefix per query."""
     if not _DISK:
         return
     try:
@@ -262,7 +262,7 @@ def _save_disk_cache():
                     d = {}          # never merge other-era data
                 # relabeling detector: the same ks_ind with different
                 # geometry on the two sides means somebody's labels are
-                # wrong -- drop that entry entirely (forces a clean refetch)
+                # wrong; drop that entry entirely (forces a clean refetch)
                 # rather than guessing which side to trust
                 disk_cache = d.get("cache", {})
                 for k in set(disk_cache) & set(_CACHE):
@@ -294,7 +294,7 @@ def _save_disk_cache():
             except (OSError, ValueError):
                 pass
         os.makedirs(os.path.dirname(_DISK), exist_ok=True)
-        # write the OVERLAY only: never persist base-layer entries (they live
+        # write the overlay only: never persist base-layer entries (they live
         # in the read-only base file and must not be duplicated/mutated here)
         cache_out = {k: v for k, v in _CACHE.items() if k not in _BASE_KEYS}
         cids_out = {k: v for k, v in _CIDS.items() if k not in _BASE_KEYS}
@@ -331,7 +331,7 @@ def _h11_of(ks):
 # human-read
 def content_id(p_or_ks) -> str:
     """Durable content-addressed identity: the first 12 hex of sha256 over
-    the polytope's AFFINE NORMAL FORM -- invariant under GL(n,Z) lattice
+    the polytope's affine normal form, invariant under GL(n,Z) lattice
     changes and translations, so the same abstract polytope gets the same id
     on any machine, from any database, in any embedding. Memoized per ks_ind
     (the normal form costs ~100 ms, PALP-bound)."""
@@ -346,7 +346,7 @@ def content_id(p_or_ks) -> str:
     cid = hashlib.sha256(nf.tobytes()).hexdigest()[:12]
     if ks is not None:
         _CIDS[ks] = cid
-        # persist in batches -- a full-file save per cid would rewrite a
+        # persist in batches: a full-file save per cid would rewrite a
         # multi-MB file once per polytope in a sweep
         if len(_CIDS) % 25 == 0:
             _save_disk_cache()
@@ -392,10 +392,10 @@ def _cache_can_serve(h11: int, h21: int | None, limit: int) -> bool:
 
 # human-read
 def _get_cached_ks_inds(h11: int, h21: int | None) -> list[str]:
-    """Cached ids for this query IN DATABASE ORDER -- the recorded fetch
+    """Cached ids for this query in database order: the recorded fetch
     prefix when one exists (immune to cache pollution from other queries),
     falling back to the exact-(h11, h21) group sorted by ind (within one
-    group, ind IS the database order)."""
+    group, ind is the database order)."""
     exact = _FETCHED.get((h11, h21))
     if exact and exact.get("ids"):
         return list(exact["ids"])
@@ -419,9 +419,9 @@ def _filter_favorable(ks_inds: list[str], favorable: bool | None) -> list[str]:
             if get_polytope(i).is_favorable(lattice="N") == favorable]
 
 # Politeness guardrail for the shared Kreuzer-Skarke database. Cache-served
-# queries are free; queries that REALLY hit the database are (a) spaced by a
-# minimum delay, (b) capped in size, and (c) capped in number per process --
-# so neither an agent loop nor a careless human script (observed: a 250-query
+# queries are free; queries that really hit the database are (a) spaced by a
+# minimum delay, (b) capped in size, and (c) capped in number per process, so
+# neither an agent loop nor a careless human script (observed: a 250-query
 # descending h11 sweep) can hammer the upstream source. All env-tunable.
 _KS_MIN_INTERVAL = float(os.environ.get("CYTOOLS_KS_MIN_INTERVAL", "1.5"))
 _KS_BUDGET = int(os.environ.get("CYTOOLS_KS_BUDGET", "40"))
@@ -476,7 +476,7 @@ def _ensure_cached(h11: int, h21: int | None, limit: int) -> None:
 
     # polytopes arrive in lexicographic (h11, h21, ind) order, so ind counts
     # within each (h11, h21) group, reset when the group changes. The ordered
-    # id list IS the database order for this query -- record it, so serving
+    # id list is the database order for this query; record it, so serving
     # from the cache never has to reconstruct (and corrupt) it by sorting.
     prev_group, ind = None, 0
     ordered = []
@@ -599,10 +599,10 @@ def get_polytope_info(ks_ind: str) -> dict:
     _t0 = time.monotonic()
 
     # graceful degradation: the tool also accepts raw Polytope objects (e.g.
-    # a 2d reflexive subpolytope), for which several fields are undefined --
+    # a 2d reflexive subpolytope), for which several fields are undefined:
     # Hodge numbers and the CY-flavored fields are 4d notions, automorphisms
     # need full dimension. Compute what is meaningful, omit the rest; the
-    # _InfoDict missing-key error names what IS available.
+    # _InfoDict missing-key error names what is available.
     def opt(compute):
         try:
             return compute()
@@ -610,7 +610,7 @@ def get_polytope_info(ks_ind: str) -> dict:
             return None
 
     # dimension-generic fields: meaningful for any lattice polytope.
-    # content_id appears only when already memoized -- computing it costs
+    # content_id appears only when already memoized; computing it costs
     # ~100 ms (PALP), too much to add to every info call; ask explicitly via
     # content_id(ks_ind) when needed.
     fields = {
@@ -625,9 +625,9 @@ def get_polytope_info(ks_ind: str) -> dict:
         },
         "automorphism_order": opt(lambda: len(p.automorphisms())),
     }
-    # CY-flavored fields: 4d notions ONLY. cytools evaluates some of these
+    # CY-flavored fields: 4d notions only. cytools evaluates some of these
     # off-domain without raising (a 2d polytope reports h11=0), so an
-    # exception guard is not enough -- gate on the dimension explicitly.
+    # exception guard is not enough: gate on the dimension explicitly.
     if p.dim() == 4:
         h11 = opt(lambda: int(p.h11(lattice="N")))
         h21 = opt(lambda: int(p.h21(lattice="N")))

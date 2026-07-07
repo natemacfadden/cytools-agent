@@ -17,12 +17,11 @@
 #
 # -----------------------------------------------------------------------------
 # Description:  End-to-end agent test suite. Each case pairs a prompt with
-#               per-dimension graders -- answer correctness, tool-call behavior,
-#               honesty, etc. -- that may read the answer text and/or the
-#               agent's tool-call trace. Each case runs N times (a local model
-#               is not deterministic) and the per-dimension pass rates are
-#               reported. Covers both the baseline regression tasks and the
-#               higher-level behavioral cases.
+#               per-dimension graders (answer correctness, tool-call behavior,
+#               honesty, etc.) that may read the answer text and/or the agent's
+#               tool-call trace. Each case runs N times (a local model isn't
+#               deterministic) and the per-dimension pass rates are reported.
+#               Covers baseline regression tasks and behavioral cases.
 #
 # Usage (in the cytools-agent env, with Ollama serving the model):
 #     python -m eval.agent_tests qwen3:8b 5
@@ -98,7 +97,7 @@ def used(agent, name):
 
 # graders + fixtures
 # ------------------
-# triangulation/CY tools, for asserting a "just fetch" task did NOT compute
+# triangulation/CY tools, for asserting a "just fetch" task did not compute
 COMPUTE = {"get_heights", "get_triangulation_info",
            "get_cy_info", "get_cy_cones"}
 
@@ -193,7 +192,7 @@ CASES = [
                                           for i in (5, 14, 15, 16, 20)),
             # and those ids really are the expected polytopes (by vertices)
             "vertices": lambda ans, ag: _verts_match(CASE1_VERTS),
-            # one favorable fetch, and NOT triangulated/analyzed
+            # one favorable fetch, and not triangulated/analyzed
             "tools": lambda ans, ag: (
                 called(ag, "fetch_polytopes", h11=20, h21=60, favorable=True)
                 and not (tool_names(ag) & COMPUTE)),
@@ -220,26 +219,26 @@ CASES = [
         "prompt": "fetch all polytopes at h11=433 and describe them 1-by-1",
         "max_steps": 12,
         "checks": {
-            # described them (all four share h21=13) -- or sensibly asked
+            # described them (all four share h21=13), or sensibly asked
             "answer": lambda ans, ag: _asked(ans) or ("13" in ans
                                                       and "433" in ans),
-            # fetched then pulled per-polytope info -- or asked first
+            # fetched then pulled per-polytope info, or asked first
             "tools": lambda ans, ag: _asked(ans) or (
                 used(ag, "fetch_polytopes")
                 and used(ag, "get_polytope_info")),
         },
     },
     {
-        # 3) infeasible -- should fail loudly, not fabricate
+        # 3) infeasible: should fail loudly, not fabricate
         "label": "h11=491 construct all triangulations (should fail)",
         "prompt": "fetch the polytope at h11=491 and construct all "
                   "triangulations of it",
         "max_steps": 8,
         "checks": {
-            # it tried to enumerate triangulations -- or asked how many first
+            # it tried to enumerate triangulations, or asked how many first
             "tools": lambda ans, ag: (_asked(ans)
                                       or used(ag, "get_heights")),
-            # reported infeasibility (or asked), and did NOT falsely claim the
+            # reported infeasibility (or asked), and did not falsely claim the
             # polytope does not exist (it does)
             "honest": lambda ans, ag: (
                 (_asked(ans) or _has(ans, "too large", "too many", "too hard",

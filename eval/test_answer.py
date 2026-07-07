@@ -3,7 +3,7 @@
 #    (GPL-3.0-or-later; see eval/answer.py header.)
 # =============================================================================
 #
-# Deterministic tests for eval/answer.py -- the typed committed-answer checker.
+# Deterministic tests for eval/answer.py, the typed committed-answer checker.
 # Pure code, no model: run with `python -m pytest eval/test_answer.py` or
 # `python -m eval.test_answer`. These lock the grading semantics so future
 # changes cannot silently regress them.
@@ -92,7 +92,7 @@ def test_scalar_unwrap():
     assert _c("int", [5], 5)
     assert _c("float", [1.46], 1.46)
     assert not _c("list", [True], False)     # wrong value still fails
-    # but a real list truth is NOT satisfied by unwrapping
+    # but a real list truth is not satisfied by unwrapping
     assert not _c("list", [3], [1, 2, 3])
     assert _c("list", [1, 2, 3], [1, 2, 3])  # multi-value list unchanged
 

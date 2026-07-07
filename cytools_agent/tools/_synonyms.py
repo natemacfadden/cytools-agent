@@ -16,14 +16,10 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Forgive reasonable parameter-name synonyms the model reaches for.
-#               The tool SCHEMA still advertises the canonical name (here
-#               `ks_ind`); this is a silent accept-layer so a model that uses a
-#               natural variant (e.g. `ks`) is not rejected with a TypeError.
-#
-#               GROW THIS by adding a word to a set below whenever we OBSERVE the
-#               model use a new reasonable synonym -- accommodating the model's
-#               unambiguous intent instead of demanding a strict ruleset.
+# Description:  Forgive reasonable parameter-name synonyms the model reaches
+#               for: the schema still advertises the canonical name, but a
+#               natural variant (e.g. `ks` for `ks_ind`) is silently accepted
+#               instead of raising a TypeError. Grow the sets below as observed.
 #               All human-read.
 # -----------------------------------------------------------------------------
 
@@ -44,13 +40,13 @@ PARAM_SYNONYMS = {
 def forgive_kwargs(fn):
     """Make a tool tolerant of how the model actually calls it:
 
-    (1) accept reasonable SYNONYMS for the canonical parameter names (only when
+    (1) accept reasonable synonyms for the canonical parameter names (only when
         the canonical is a real parameter of `fn` and was not already supplied,
-        so a real parameter -- e.g. get_heights's `n` -- is never shadowed); and
-    (2) on an argument-BINDING mistake (wrong positional order, a positional/
-        keyword mix-up, a missing or unexpected argument), raise a POINTED error
-        that REMINDS the model of THIS function's argument order and shows the
-        keyword form to use -- instead of Python's opaque "got multiple values
+        so a real parameter, e.g. get_heights's `n`, is never shadowed); and
+    (2) on an argument-binding mistake (wrong positional order, a positional/
+        keyword mix-up, a missing or unexpected argument), raise a pointed error
+        that reminds the model of this function's argument order and shows the
+        keyword form to use, instead of Python's opaque "got multiple values
         for argument 'limit'". The model then fixes its own call.
 
     functools.wraps keeps the signature/docstring, so `function_to_schema` still

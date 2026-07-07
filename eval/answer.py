@@ -16,20 +16,18 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Typed committed-answer schema + a DETERMINISTIC checker for the
-#               system ladder. Every rung ends its output with a machine-
-#               readable block:
+# Description:  Typed committed-answer schema + a deterministic checker for the
+#               system ladder. Every rung ends its output with a machine-readable
+#               block:
 #
 #                   <final>{"kind": "<int|float|list|bool|impossible|none>",
 #                           "value": <json value>}</final>
 #
-#               Grading then compares that typed value to the corpus truth BY
-#               TYPE -- exact for int/bool, tolerance for float, ordered-or-
-#               entry-set for list, a marker for impossible. There is no prose
-#               parsing, no substring matching, and no model in the decision:
-#               the answer is extracted at the rung's own layer, the check is
-#               pure code. This is what makes grading reproducible + auditable
-#               and immune to the digit-leak false positives of prose matching.
+#               Grading compares that typed value to the corpus truth by type:
+#               exact for int/bool, tolerance for float, ordered-or-entry-set for
+#               list, a marker for impossible. No prose parsing, no substring
+#               matching, no model in the decision, so grading is reproducible and
+#               immune to the digit-leak false positives of prose matching.
 #
 # All functions here are human-read (developer tooling).
 # -----------------------------------------------------------------------------
@@ -39,7 +37,7 @@ import re
 
 KINDS = ("int", "float", "list", "bool", "impossible", "none")
 
-# The block a rung appends as the LAST thing in its reply. Non-greedy up to the
+# The block a rung appends as the last thing in its reply. Non-greedy up to the
 # closing tag; DOTALL so a value may span lines; last block wins (see below).
 _FINAL_RE = re.compile(r"<final>\s*(\{.*?\})\s*</final>", re.S | re.I)
 
@@ -69,7 +67,7 @@ def build_final(kind, value):
 
 
 def parse_final(text):
-    """The parsed {kind, value} dict from the LAST valid <final> block, else
+    """The parsed {kind, value} dict from the last valid <final> block, else
     None. Last-wins so a rung that shows an example block earlier and its real
     answer last is read correctly."""
     if not isinstance(text, str):
@@ -92,7 +90,7 @@ def _round(x):
 
 
 def _decimals(x):
-    """Decimal places in a truth literal, so a float is checked to the SAME
+    """Decimal places in a truth literal, so a float is checked to the same
     precision it was rounded to: truth 1.46 (2 dp) accepts a computed 1.4583
     (rounds to 1.46) but rejects 1.5."""
     s = repr(float(x))
@@ -103,7 +101,7 @@ def _entries(v):
     """Normalize a list/tuple answer to a sorted list of entries, each entry a
     tuple of rounded numbers (or a rounded scalar). Order-insensitive at the
     top level (entry order is arbitrary), but an entry's internal order is
-    preserved -- matching the corpus's [i,j,k,value] / ray semantics."""
+    preserved, matching the corpus's [i,j,k,value] / ray semantics."""
     if not isinstance(v, (list, tuple)):
         v = [v]
     out = []
@@ -126,7 +124,7 @@ def _list_match(val, truth):
 def grade_typed(ans, truth):
     """The grader for every eval arm. Quarantines ERROR (harness failure) and
     TIMEOUT sentinels, then decides PASS/FAIL by a deterministic typed check of
-    the <final> block -- no prose matching, no regex. A missing/unparseable
+    the <final> block: no prose matching, no regex. A missing/unparseable
     block -> FAIL."""
     from eval.grading import TIMED_OUT
     if ans == TIMED_OUT:
@@ -144,7 +142,7 @@ def check(final, truth):
     kind = str(final.get("kind", "")).lower()
     val = final.get("value")
 
-    # negative test: truth == "IMPOSSIBLE" -- pass iff the rung committed the
+    # negative test: truth == "IMPOSSIBLE", pass iff the rung committed the
     # impossible marker (it attempted and reported no valid answer).
     if isinstance(truth, str) and truth.strip().upper() == "IMPOSSIBLE":
         return kind == "impossible"
@@ -160,7 +158,7 @@ def check(final, truth):
             and not isinstance(truth, (list, tuple))):
         val = val[0]
 
-    if isinstance(truth, bool):                     # bool BEFORE int (bool<:int)
+    if isinstance(truth, bool):                     # bool before int (bool<:int)
         return isinstance(val, bool) and val == truth
     if isinstance(truth, int):
         try:

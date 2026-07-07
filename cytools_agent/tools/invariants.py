@@ -16,21 +16,12 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Machine-checkable identities between CYTools quantities,
-#               derived from the cytools source (file:line cited per entry)
-#               and verified numerically against the KS database before
-#               admission (python -m eval.verify_glossary).
-#
-#               Trust model: models are helpful but untrustworthy -- these
-#               checks audit any agent's computed values without an LLM.
-#               Scope (honest): invariants catch wrong-formula computation,
-#               cytools regressions, and constraint violations. They cannot
-#               catch relabeled-but-self-consistent geometry -- that is the
-#               content-id layer's job (polytope.content_id).
-#
-#               Each invariant: name, source (cytools file:line or theorem),
-#               applies(p) -> bool, check(p) -> bool. Checks take a cytools
-#               Polytope and recompute both sides independently.
+# Description:  Machine-checkable identities between CYTools quantities, cited
+#               to the cytools source and verified against the KS database
+#               (python -m eval.verify_glossary). They audit an agent's values
+#               without an LLM: catching wrong formulas, regressions, and
+#               constraint violations, but not relabeled-but-self-consistent
+#               geometry (that is content_id's job).
 # -----------------------------------------------------------------------------
 
 # human-read (entire module)
@@ -194,7 +185,7 @@ def _tip_volumes_positive(cy):
 
 def run_polytope_invariants(p, names=None):
     """Run every applicable polytope-level invariant on `p`. Returns
-    {name: True|False|'n/a'} -- False means a VIOLATION."""
+    {name: True|False|'n/a'}; False means a violation."""
     out = {}
     for inv in INVARIANTS:
         if names and inv["name"] not in names:

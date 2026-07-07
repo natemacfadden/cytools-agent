@@ -17,19 +17,18 @@
 #
 # -----------------------------------------------------------------------------
 # Description:  The single typed-emission path shared by every eval arm. A
-#               rung/arm is asked (via FINAL_INSTRUCTION) to end its reply with
-#               a machine-readable <final>{"kind","value"} block; this module
-#               guarantees the block is present so the deterministic typed
-#               grader (eval/answer.py grade_typed) can read it -- no prose
-#               parsing, no regex. When a reply lacks the block, a separate
-#               model call (blind to the truth) extracts the committed answer
-#               into one; that call is the only model left in the grading path,
-#               and its verdict is still pure code.
+#               rung/arm ends its reply (via FINAL_INSTRUCTION) with a machine-
+#               readable <final>{"kind","value"} block; this module guarantees
+#               the block is present so the deterministic typed grader
+#               (eval/answer.py grade_typed) can read it. When a reply lacks the
+#               block, a separate model call (blind to the truth) extracts the
+#               committed answer into one; that is the only model left in the
+#               grading path, and its verdict is still code.
 #
 #               Local-Ollama arms (eval.py, eval_single_pm.py, the ladder) use
-#               the backstop. An external-model arm (eval_claude.py) cannot --
-#               the finalizer client is Ollama's -- so it disables the backstop
-#               and relies on the arm's own reliable self-emission.
+#               the backstop. An external-model arm (eval_claude.py) can't (the
+#               finalizer client is Ollama's), so it disables the backstop and
+#               relies on the arm's own self-emission.
 #
 # All functions here are human-read (developer tooling).
 # -----------------------------------------------------------------------------

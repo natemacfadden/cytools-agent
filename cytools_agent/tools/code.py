@@ -48,7 +48,7 @@ except ImportError:
 from cytools_agent.tools import polytope, triangulation, cy
 
 # persistent namespace: raw cytools + trusted tool functions. numpy (np),
-# matplotlib.pyplot (plt) and the raw cytools library are preloaded too -- the
+# matplotlib.pyplot (plt) and the raw cytools library are preloaded too: the
 # executor needs them for arrays, plots, and anything the tools don't cover.
 _NS = {
     "cytools": cytools,
@@ -73,7 +73,7 @@ _NS = {
 # (and be callable), so we enable the behavior instead of erroring on it. We
 # skip names already in sys.modules, so real modules (e.g. cytools) are never
 # shadowed.
-# KNOWN HAZARD: sys.modules now holds non-module objects, which can confuse
+# Known hazard: sys.modules now holds non-module objects, which can confuse
 # third-party code that iterates it expecting modules (inspect.getmodule,
 # importlib.reload, some pytest collection paths). Scoped to this process and
 # accepted; if a library trips on it, filter with inspect.ismodule.
@@ -84,16 +84,16 @@ for _name, _obj in _NS.items():
 _PRELOADED = list(_NS)   # tool names, captured before run_python adds vars
 
 # --- experiments (b)/(c): harness-captured result nodes --------------------
-# When CAPTURE_RESULT_NODES is on, each run_python call records the REAL values
+# When CAPTURE_RESULT_NODES is on, each run_python call records the real values
 # the model surfaces (its last bare-expression value, and anything it prints)
 # into _NODES. Two consumers:
-#   (b) ECHO_NODE_IDS on  -> also echo "[node N] <repr>" so the model can POINT
+#   (b) ECHO_NODE_IDS on  -> also echo "[node N] <repr>" so the model can point
 #       its final answer at a shown node number (it selects, never names a var).
-#   (c) ECHO_NODE_IDS off -> capture SILENTLY (output identical to production):
+#   (c) ECHO_NODE_IDS off -> capture silently (output identical to production):
 #       the model types its answer as usual, and the harness later checks that
-#       the typed value MATCHES a captured node -- a "watchful eye" that grounds
+#       the typed value matches a captured node, a "watchful eye" that grounds
 #       the answer without asking the model to relocate it.
-# Both default off -- production run_python is unchanged. See eval/nodes.py.
+# Both default off; production run_python is unchanged. See eval/nodes.py.
 CAPTURE_RESULT_NODES = False
 ECHO_NODE_IDS = False
 _NODES = []              # real objects, index == node id; reset per session
@@ -119,7 +119,7 @@ def _capturing_print(*args, **kwargs):
     for a in args:
         _NODES.append(a)
     return _builtin_print(*args, **kwargs)
-# the curated CALLABLE tools to steer the model to -- NOT the raw `cytools`
+# the curated callable tools to steer the model to, not the raw `cytools`
 # module / `np` / `plt` / `Polytope` (telling it to "call cytools" sends it to
 # the raw library, e.g. cytools.fetch_polytopes() with its misleading 1000
 # default). np/plt/cytools are still available; they're mentioned separately.
@@ -127,14 +127,14 @@ _TOOL_NAMES = [n for n in _PRELOADED
                if n not in ("cytools", "np", "plt", "Polytope")]
 
 _MAX_OUTPUT = 4000  # cap returned stdout to protect the context window
-# Wall-clock cap for ONE run_python call (seconds; 0 disables). Observed: an
+# Wall-clock cap for one run_python call (seconds; 0 disables). Observed: an
 # executor step burned 14+ minutes of CPU recomputing get_polytope_info (all
-# fields, incl. automorphisms) for thousands of polytopes -- with no LLM in
+# fields, incl. automorphisms) for thousands of polytopes, with no LLM in
 # the loop to notice. The cap turns runaway computation into a pointed,
 # recoverable error. Main-thread only (signals); other threads are uncapped.
 _RUN_TIMEOUT = float(os.environ.get("CYTOOLS_RUN_TIMEOUT", "150"))
 
-# absolute monotonic deadline for the WHOLE session, or None. When set, each
+# absolute monotonic deadline for the whole session, or None. When set, each
 # run_python call is capped to the time remaining, so the session budget is a
 # (near-)hard stop: a single long call can no longer overrun it and get
 # hard-killed by the outer process (observed: a walk step starting just under
@@ -162,11 +162,11 @@ def _effective_timeout():
 
 
 class _RunPythonTimeout(BaseException):
-    """Wall-clock cap breach. Inherits BaseException (NOT Exception) so a
-    per-item `except Exception` in tool/user code -- e.g. compute_for_each's or
-    search_polytopes' loop, which catch a bad item and `continue` -- cannot
+    """Wall-clock cap breach. Inherits BaseException (not Exception) so a
+    per-item `except Exception` in tool/user code (e.g. compute_for_each's or
+    search_polytopes' loop, which catch a bad item and `continue`) cannot
     swallow it. Otherwise the one-shot SIGALRM fires once, is caught as a
-    'failed item', and the remaining work runs UNCAPPED (observed: a 5000-
+    'failed item', and the remaining work runs uncapped (observed: a 5000-
     polytope CY sweep ran ~7000s past a 500s budget). It now propagates to
     run_python's own handler, which stops the call."""
     pass
@@ -189,13 +189,13 @@ def _assigned_names(tree):
 
 # human-read
 def _computed_scalars(tree):
-    """{name: value} for top-level names assigned from a COMPUTATION whose
-    current value is a scalar -- so a result the model computed but forgot to
+    """{name: value} for top-level names assigned from a computation whose
+    current value is a scalar, so a result the model computed but forgot to
     print can be surfaced into the captured output (and thus grounded). A name
-    assigned a bare literal (answer = 5, xs = [1,2]) is EXCLUDED: surfacing
+    assigned a bare literal (answer = 5, xs = [1,2]) is excluded: surfacing
     that would let a typed-in (fabricated) number pass the grounding check, the
     very thing the no-output guard exists to stop. Only genuinely-computed
-    scalars -- the value came out of executing the model's code -- qualify."""
+    scalars (the value came out of executing the model's code) qualify."""
     def computed_rhs(val):
         if isinstance(val, (ast.Constant, ast.List, ast.Tuple, ast.Set,
                             ast.Dict, ast.JoinedStr)):
@@ -243,8 +243,8 @@ def reset_figures():
 # human-read
 def reset_namespace():
     """Clear user-added variables from the persistent run_python scratchpad, so
-    each session starts CLEAN. The namespace (_NS) is module-global, so without
-    this a variable from one session (e.g. polytope_ids) leaks into the next --
+    each session starts clean. The namespace (_NS) is module-global, so without
+    this a variable from one session (e.g. polytope_ids) leaks into the next,
     corrupting multi-run processes like the eval harness. Preloaded tools and
     modules (captured in _PRELOADED) are kept."""
     for name in [n for n in _NS if n not in _PRELOADED]:
@@ -282,7 +282,7 @@ def _describe(val):
 # human-read
 def namespace_summary():
     """The user-defined names live in the persistent run_python scratchpad,
-    each with a size hint -- so a multi-step session can see what it has
+    each with a size hint, so a multi-step session can see what it has
     already built (preloaded tools, modules, and privates are omitted)."""
     parts = [f"{name}={_describe(val)}" for name, val in _NS.items()
              if name not in _PRELOADED and not name.startswith("_")
@@ -292,8 +292,8 @@ def namespace_summary():
 
 # human-read
 def _format_user_traceback(exc, code):
-    """A traceback showing ONLY the user's code -- the offending line with its
-    source text -- not run_python's exec/compile machinery. The source lines
+    """A traceback showing only the user's code (the offending line with its
+    source text), not run_python's exec/compile machinery. The source lines
     are surfaced by registering `code` in linecache under the <run_python>
     name (exec'd strings have no file, so tracebacks otherwise omit the line).
     Falls back to the full traceback if no user frame is found (e.g. a
@@ -385,8 +385,8 @@ def run_python(code: str) -> str:
                 exec(compile(code, "<run_python>", "exec"), _NS)
         out = buf.getvalue()
         if not out:
-            # nothing printed. If the code COMPUTED a scalar, surface its value
-            # so the result is captured (groundable, copyable) -- the model
+            # nothing printed. If the code computed a scalar, surface its value
+            # so the result is captured (groundable, copyable): the model
             # routinely assigns the answer and forgets to print it (observed
             # [104]: trilayer_count = 7 computed, never printed, then reported
             # as a fabricated 0). Only computed scalars, never typed literals.
@@ -428,7 +428,7 @@ def run_python(code: str) -> str:
                     "don't cover.]")
         elif isinstance(e, NameError):
             # a near-miss for a real tool name (e.g. get_polytopes ->
-            # fetch_polytopes) -- point to it; the model's intent is clear
+            # fetch_polytopes); point to it, the model's intent is clear
             near = difflib.get_close_matches(missing or "", _TOOL_NAMES, n=2,
                                              cutoff=0.6)
             if near:
@@ -442,8 +442,8 @@ def run_python(code: str) -> str:
                         f"{namespace_summary()}]")
     finally:
         if timed:
-            # disarm ours, restore the previous handler FIRST (so a pending
-            # outer deadline fires into ITS handler), then re-arm the outer
+            # disarm ours, restore the previous handler first (so a pending
+            # outer deadline fires into its handler), then re-arm the outer
             # timer with its remaining time minus what this call consumed
             signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, prev)

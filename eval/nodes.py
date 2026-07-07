@@ -16,21 +16,11 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Experiment "A": answers are POINTERS TO NODES, not typed values.
-#               Instead of retyping its result into the <final> block (where a
-#               model can transcribe or confabulate a wrong number), the model
-#               leaves its answer in a run_python variable and points at it:
-#
-#                   <final>{"kind": "int", "node": "answer"}</final>
-#
-#               The grader then reads the REAL Python object out of the
-#               persistent run_python namespace (_code._NS) and grades that with
-#               the same deterministic check() as the value path. The reported
-#               value can no longer disagree with what the code computed -- it IS
-#               what the code computed. Nothing verifies the code itself (that is
-#               problem "B", punted); this only closes the report-the-number gap.
-#
-#               A/B against the value path: run eval.eval_single_pm with --nodes.
+# Description:  Experiment "A": answers are pointers to run_python variables, not
+#               typed values. The grader reads the real object from the namespace
+#               (_code._NS) and checks it, so the report can't disagree with the
+#               code. Doesn't verify the code (problem "B", punted). A/B vs the
+#               value path: eval_single_pm --nodes.
 #
 # All functions here are human-read (developer tooling).
 # -----------------------------------------------------------------------------
@@ -99,9 +89,8 @@ def _coerce(v):
 def resolve_and_grade(ans, truth, ns=None):
     """Grade a node-pointer reply. Quarantines TIMEOUT/ERROR like grade_typed;
     resolves a "node" pointer against the run_python namespace (a dangling
-    pointer FAILs); a literal-value or impossible/none block is graded as-is;
-    a reply with no block at all falls back to the shared blind finalizer so the
-    only difference from the value arm is how a *committed* answer is read.
+    pointer fails); grades a literal-value or impossible/none block as-is; a
+    reply with no block falls back to the shared blind finalizer.
     Returns (status, final_dict_used)."""
     if ns is None:
         ns = _code._NS
@@ -139,13 +128,13 @@ def run_node_arm(run, model, question, timeout, truth, raw=False):
 
 
 # =============================================================================
-# Experiment (b): HARNESS-captured result nodes.
+# Experiment (b): harness-captured result nodes.
 #
-# The variant above asked the model to NAME a variable and point at it, which
-# dangled (the model claimed vars it never bound; -18 pts on qwen3:14b). Here the
-# harness numbers each run_python last-expression value (code.CAPTURE_RESULT_NODES)
-# and echoes "[node N] <value>"; the model points at a number it was SHOWN, so it
-# selects from what exists and the pointer cannot dangle -- that was the loss.
+# Variant "A" asked the model to name a variable and point at it, which dangled
+# (claimed vars it never bound; -18 pts on qwen3:14b). Here the harness numbers
+# each run_python last-expression value (code.CAPTURE_RESULT_NODES) and echoes
+# "[node N] <value>"; the model points at a number it was shown, so the pointer
+# can't dangle.
 # =============================================================================
 
 RESULT_NODE_FINAL_INSTRUCTION = (
@@ -205,14 +194,13 @@ def run_result_node_arm(run, model, question, timeout, truth, raw=False):
 
 
 # =============================================================================
-# Experiment (c): the watchful eye -- verify, don't relocate.
+# Experiment (c): the watchful eye. Verify, don't relocate.
 #
-# The model answers in its NATURAL value mode (types the number), so there is no
-# addressing burden and no regression. The harness silently captures the values
-# the model computed (last bare expressions + anything it printed) and flags
-# whether the committed value is GROUNDED -- i.e. equals one of those captured
-# values. The guarantee: you may only report a number you actually computed; a
-# value grounded in nothing is suspect. Softer than a hard pointer, but free.
+# The model answers in its natural value mode (types the number), so no addressing
+# burden and no regression. The harness silently captures what the model computed
+# (last bare expressions + anything printed) and flags whether the committed value
+# is grounded, i.e. equals one of the captured values. Softer than a hard pointer,
+# but free.
 # =============================================================================
 
 def _flatten_numbers(nodes, out):
@@ -228,7 +216,7 @@ def _flatten_numbers(nodes, out):
 
 
 def _near(a, b):
-    """a matches b up to the reporting precision -- so a computed 2223.199 grounds
+    """a matches b up to the reporting precision, so a computed 2223.199 grounds
     a reported 2223.2, and an int matches its float form."""
     try:
         a, b = float(a), float(b)

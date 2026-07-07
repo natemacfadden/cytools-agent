@@ -17,11 +17,11 @@
 #
 # -----------------------------------------------------------------------------
 # Description:  Single-agent eval on the multi-step corpus (or any corpus file):
-#               the plain Agent loop run over multi-polytope problems, graded by
-#               the same typed grader as the rest. NOTE the agent talks to
-#               Ollama's OpenAI-compatible endpoint, which cannot set num_ctx per
-#               request -- start the server with OLLAMA_CONTEXT_LENGTH=16384 if
-#               you need a fixed context window.
+#               the plain Agent loop over multi-polytope problems, graded by the
+#               same typed grader as the rest. Note the agent talks to Ollama's
+#               OpenAI-compatible endpoint, which can't set num_ctx per request;
+#               start the server with OLLAMA_CONTEXT_LENGTH=16384 for a fixed
+#               context window.
 #
 #     python -m eval.eval_single_pm qwen3:8b --ids 3,4,6,9 --reps 3
 #         [--timeout 600] [--corpus eval/ladder.jsonl] [--out results.json]

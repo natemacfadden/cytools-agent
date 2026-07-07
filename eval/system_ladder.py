@@ -16,7 +16,7 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  The ladder of systems -- the fairness design for demonstrating
+# Description:  The ladder of systems, the fairness design for demonstrating
 #               this harness (see diagnostics/README.md). Each rung holds the
 #               model and questions fixed and varies one layer of the stack:
 #

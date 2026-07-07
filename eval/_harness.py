@@ -55,12 +55,12 @@ def make_agent(model, max_steps=20, verbosity=0):
 
 
 # ---------------------------------------------------------------------------
-# The L1 baseline: raw cytools in a plain REPL, vanilla loop. This is the
-# good-faith counterfactual "what you get by handing an agent the library
-# as-published" -- deliberately WITHOUT the curated layer (no id scheme, no
-# forgiveness, no pointed errors, no iteration/search tools, no glossary, no
-# guards). The gap between this and the curated-tool agent measures the tool
-# layer's contribution. Same model, same loop, same step budget.
+# The L1 baseline: raw cytools in a plain REPL, vanilla loop. The good-faith
+# counterfactual "what you get by handing an agent the library as-published",
+# deliberately without the curated layer (no id scheme, no forgiveness, no
+# pointed errors, no iteration/search tools, no glossary, no guards). The gap
+# between this and the curated-tool agent measures the tool layer's
+# contribution. Same model, same loop, same step budget.
 # ---------------------------------------------------------------------------
 _RAW_NS = {}
 

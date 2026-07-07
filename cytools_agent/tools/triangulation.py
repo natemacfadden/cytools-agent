@@ -61,10 +61,9 @@ def _triangulation_difficulty(poly: cytools.Polytope,
 
     NTFE bands recalibrated 2026-06 against cytools' fast NTFE code (measured:
     <=0.1s through 25 points, >120s at 37). Point count only loosely predicts
-    NTFE cost -- the count of NTFEs drives it, and that varies wildly mid-band
-    (an h11=15 polytope had 11k NTFEs / 3s while an h11=20 had 81 / 0.1s) --
-    so the mid bands are conservative. FRST enumeration was NOT sped up and
-    keeps the old, stricter bands (measured: 26s already at 13 points).
+    NTFE cost (the NTFE count drives it, and varies wildly mid-band), so the
+    mid bands are conservative. FRST was not sped up and keeps the old,
+    stricter bands (measured: 26s already at 13 points).
     """
     n = len(poly.points())
     if kind == "FRST":
@@ -79,10 +78,10 @@ def _triangulation_difficulty(poly: cytools.Polytope,
 
 # human-read
 class _HeightsDict(dict):
-    """The get_heights result: {"shape", "heights"} that ALSO answers integer
-    indexing/iteration like the underlying list -- result[0] is the first
-    height vector (the model's unambiguous intent; older corpus code too), and
-    a missing string key gets a pointed error naming the real keys."""
+    """The get_heights result: {"shape", "heights"} that also answers integer
+    indexing/iteration like the underlying list (result[0] is the first height
+    vector; the model's unambiguous intent, older corpus code too), and a
+    missing string key gets a pointed error naming the real keys."""
 
     def __getitem__(self, key):
         if isinstance(key, (int, slice)):
@@ -181,7 +180,7 @@ def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
                 hts = p.random_triangulations_gnn(
                     N=n, make_star=True, as_heights=True, seed=seed)
             hts = [[float(x) for x in h] for h in hts]
-            # note BEFORE heights: long results get truncated in logs/display,
+            # note before heights: long results get truncated in logs/display,
             # so the provenance note must come first to survive
             return _HeightsDict({
                 "shape": [len(hts), len(hts[0]) if hts else 0],

@@ -111,7 +111,7 @@ def main():
     emit()
 
     # per-rung pass rate (over scored = pass + fail) and delta vs the rung
-    # below it -- the delta is what attributes a layer's contribution
+    # below it; the delta is what attributes a layer's contribution
     emit("## rungs (pass% over scored = PASS+FAIL)")
     emit()
     emit("| rung | system | n | PASS | FAIL | TIMEOUT | error | pass% "

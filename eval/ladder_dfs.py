@@ -19,11 +19,11 @@
 # Description:  Depth-first driver for the system ladder. system_ladder.py runs
 #               one rung over the whole corpus per invocation (breadth-first by
 #               rung); this instead takes one (randomly ordered) question at a
-#               time and runs it through EVERY rung before moving on. So midway
+#               time and runs it through every rung before moving on, so midway
 #               you already have complete rung-by-rung comparisons for the
-#               questions done so far -- easier to inspect than 'L0 done, rest
-#               empty'. Writes the SAME per-rung result JSONs as system_ladder
-#               (incrementally), so eval/ladder_report.py reads them unchanged.
+#               questions done so far. Writes the same per-rung result JSONs as
+#               system_ladder (incrementally), so ladder_report.py reads them
+#               unchanged.
 #
 #     python -m eval.ladder_dfs --model gpt-oss:20b [--reps 5]
 #         [--corpus eval/ladder.jsonl] [--ids 1,3,5] [--seed 0]
@@ -98,7 +98,7 @@ def main():
         }
 
     # depth-first order: shuffle the (rep, id) pairs, then for each pair run
-    # every rung before moving on -- so partial output spans all rungs
+    # every rung before moving on, so partial output spans all rungs
     plan = [(rep, qid) for rep in range(reps) for qid in ids]
     random.Random(seed).shuffle(plan)
     print(f"###### DFS ladder -- {model} on {corpus_tag}: {len(ids)} ids "

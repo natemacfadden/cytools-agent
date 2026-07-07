@@ -67,7 +67,7 @@ def function_to_schema(fn) -> dict:
     hints; the description is the function's full docstring (so the model sees
     each parameter's meaning). Nothing needs to be written by hand.
 
-    Every parameter MUST be type-hinted: a missing hint raises here rather than
+    Every parameter must be type-hinted: a missing hint raises here rather than
     silently defaulting to "string" and feeding the model a wrong schema. (The
     return type is not used by the schema, so it need not be hinted.)
 

@@ -16,29 +16,27 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  A/B benchmark for glossary context RETRIEVAL, so a change of
-#               retriever (the keyword matcher -> an embedding RAG) is measured,
-#               not assumed. Scores any function
+# Description:  A/B benchmark for glossary context retrieval, so swapping the
+#               retriever (keyword matcher -> embedding RAG) is measured, not
+#               assumed. Scores any function
 #
 #                   retrieve(message, k) -> set[str]   # glossary keys to inject
 #
-#               against labeled messages, on two axes that trade off:
-#                 - recall on POSITIVES: did the relevant term get injected
+#               against labeled messages on two axes that trade off:
+#                 - recall on positives: did the relevant term get injected
 #                   (keyword's weak spot is paraphrases/variants);
-#                 - false-fire on NEGATIVES: did it inject on a message with no
+#                 - false-fire on negatives: did it inject on a message with no
 #                   term to define (over-firing is the RAG risk; keyword guards
 #                   it with _SCAN_SKIP).
 #
 #               Cases come from three places:
 #                 - hand:   targeted exact/paraphrase/negative probes;
-#                 - corpus: REAL questions from eval/corpus.jsonl, labeled from
-#                           each question's `kind` via KIND_TO_TERM (realistic
-#                           phrasing, grounded label);
+#                 - corpus: real corpus questions, labeled from each `kind` via
+#                           KIND_TO_TERM;
 #                 - negatives: realistic tool-driving commands / follow-ups.
 #
-#               Caveat: KIND_TO_TERM and the hand labels are author-curated and
-#               need domain-expert review (a few are arguable, flagged inline).
-#               Label quality is what makes the numbers trustworthy.
+#               Caveat: KIND_TO_TERM and hand labels are author-curated and want
+#               domain-expert review (a few arguable, flagged inline).
 #
 #     python -m eval.retrieval_bench            # score every retriever
 #     python -m eval.retrieval_bench --detail   # + per-case hits/misses
@@ -57,13 +55,13 @@ _CORPUS = os.path.join(os.path.dirname(__file__), "corpus.jsonl")
 
 # Targeted probes: (message, {expected keys}, bucket).
 HAND_CASES = [
-    # exact / synonym present -- keyword's home turf
+    # exact / synonym present: keyword's home turf
     ("How many NTFE triangulations does it have?", {"ntfe"}, "exact"),
     ("What is the second Chern class of the CY?", {"second chern class"}, "exact"),
     ("Compute the Gopakumar-Vafa invariants.", {"gopakumar-vafa invariants"}, "exact"),
     ("Give me the Mori cone rays.", {"mori cone"}, "exact"),
     ("What is the D3 tadpole charge?", {"d3 tadpole charge"}, "exact"),
-    # paraphrase / variant / unlisted phrasing -- the RAG target
+    # paraphrase / variant / unlisted phrasing: the RAG target
     ("Favorability is a property of the polytope, not the triangulation", {"favorable"}, "paraphrase"),
     ("Is this geometry favorable with respect to the N lattice?", {"favorable"}, "paraphrase"),
     ("How symmetric is the polytope?", {"automorphisms"}, "paraphrase"),
@@ -78,8 +76,8 @@ HAND_CASES = [
 ]
 
 # Realistic non-glossary messages: commands / follow-ups. Expected = nothing.
-# (A few mention an h11/h21 FILTER, which should NOT trigger the hodge-numbers
-# definition -- a good over-fire probe for a semantic retriever.)
+# (A few mention an h11/h21 filter, which should not trigger the hodge-numbers
+# definition: a good over-fire probe for a semantic retriever.)
 NEGATIVES = [
     "Fetch the first 10 polytopes at h11=3.",
     "Now do the same at h11=4.",
@@ -92,9 +90,9 @@ NEGATIVES = [
 ]
 
 # corpus `kind` -> glossary key. Curated; skips kinds with no clean glossary term
-# (vertex counts -- no 'vertices' entry -- and the plot_* tasks). A few are
-# arguable and want review: triangulation_count/n_ntfe_frsts -> ntfe,
-# facet/edge/2-face counts -> face count, mirror_h11 -> dual polytope.
+# (vertex counts, no 'vertices' entry, and the plot_* tasks). A few are arguable
+# and want review: triangulation_count/n_ntfe_frsts -> ntfe, facet/edge/2-face
+# counts -> face count, mirror_h11 -> dual polytope.
 KIND_TO_TERM = {
     "2-face-genera": "2-face genus",
     "automorphism-order": "automorphisms",
@@ -182,53 +180,31 @@ def all_cases():
             + [(m, set(), "negative") for m in NEGATIVES])
 
 
-def keyword_retrieve(message, k=3):
-    """Current production retriever: glossary_context's selection -- matched
-    keys, longest phrase first, capped at k."""
-    return set(sorted(_g._matched_keys(message), key=lambda s: -len(s))[:k])
-
-
-# --- dense (embedding) retriever -------------------------------------------
-# bge-small-en-v1.5 on CPU. Embed each glossary entry's "term: definition" once,
-# cosine to the query, keep entries above THRESHOLD (the off-switch), top-k.
-_EMBED_MODEL = "BAAI/bge-small-en-v1.5"
-_BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
-DENSE_THRESHOLD = 0.75            # cosine cutoff, calibrated on the labeled set
-                                  # (sweep: 0.75 is the lowest bar with 0% false-fire)
-
-_model = None
-_entry_keys = None
-_entry_vecs = None
+# The three retrievers are the shipped ones (cytools_agent.tools.glossary), so
+# this bench measures exactly what glossary_context uses: no drift between the
+# validated numbers and production. glossary owns the model, threshold (0.75),
+# and the keyword/dense/hybrid logic; here we just wrap them for scoring.
+DENSE_THRESHOLD = _g.DENSE_THRESHOLD
+_BGE_QUERY_PREFIX = _g._BGE_QUERY_PREFIX
 
 
 def _ensure_index():
-    """Load the model (CPU) and embed the glossary entries once, lazily -- so a
-    keyword-only run never imports torch."""
-    global _model, _entry_keys, _entry_vecs
-    if _model is not None:
-        return
-    from sentence_transformers import SentenceTransformer
-    _model = SentenceTransformer(_EMBED_MODEL, device="cpu")
-    _entry_keys = sorted(_g._GLOSSARY)
-    passages = [f"{k}: {_g._GLOSSARY[k][0]}" for k in _entry_keys]  # term: definition
-    _entry_vecs = _model.encode(passages, normalize_embeddings=True)
+    _g._ensure_dense()
+
+
+def keyword_retrieve(message, k=3):
+    """Keyword layer (regex phrase match, longest first, capped at k)."""
+    return set(_g._regex_keys(message, k))
 
 
 def dense_retrieve(message, k=3, threshold=DENSE_THRESHOLD):
-    _ensure_index()
-    q = _model.encode([_BGE_QUERY_PREFIX + message], normalize_embeddings=True)[0]
-    sims = _entry_vecs @ q                       # cosine (vectors are unit-norm)
-    ranked = sorted(zip(sims.tolist(), _entry_keys), reverse=True)
-    return {key for sim, key in ranked[:k] if sim >= threshold}
+    """Semantic layer (bge-small cosine >= threshold, top-k)."""
+    return _g._dense_keys(message, k, threshold)
 
 
 def hybrid_retrieve(message, k=3, threshold=DENSE_THRESHOLD):
-    """Both, together: keyword matches first (precision floor), then fill with
-    dense hits above threshold, capped at k."""
-    kw = keyword_retrieve(message, k)
-    dn = dense_retrieve(message, k, threshold)
-    merged = list(kw) + [x for x in dn if x not in kw]
-    return set(merged[:k])
+    """Both: keyword first, then dense above threshold, capped at k."""
+    return set(_g.retrieve_keys(message, k, threshold))
 
 
 def _validate_labels(cases):
@@ -273,7 +249,7 @@ def evaluate(retrieve, cases=None, k=3, show="none"):
             "by_bucket": {b: tally[b] for b in buckets}}
 
 
-# retrievers under test -- all share the retrieve(message, k) shape.
+# retrievers under test; all share the retrieve(message, k) shape.
 # "regex" = the string/keyword matcher; "transformer" = the embedding retriever.
 RETRIEVERS = {"regex": keyword_retrieve,
               "transformer": dense_retrieve,
@@ -284,7 +260,7 @@ def sweep(thresholds=None, k=3):
     """Sweep the transformer's cosine cutoff and show, at each threshold, the
     recall / paraphrase-recall / false-fire for the transformer alone and for
     hybrid (regex union transformer). Encodes every query once, then re-applies
-    each threshold to the cached similarity scores -- so the sweep is cheap."""
+    each threshold to the cached similarity scores, so the sweep is cheap."""
     _ensure_index()
     thresholds = thresholds or [round(0.40 + 0.05 * i, 2) for i in range(9)]  # .40-.80
     cases = all_cases()
@@ -292,8 +268,10 @@ def sweep(thresholds=None, k=3):
 
     precomp = []                       # (expected, bucket, ranked[(sim,key)], regex_set)
     for msg, exp, bucket in cases:
-        q = _model.encode([_BGE_QUERY_PREFIX + msg], normalize_embeddings=True)[0]
-        ranked = sorted(zip((_entry_vecs @ q).tolist(), _entry_keys), reverse=True)
+        q = _g._embed_model.encode([_BGE_QUERY_PREFIX + msg],
+                                   normalize_embeddings=True)[0]
+        ranked = sorted(zip((_g._entry_vecs @ q).tolist(), _g._entry_keys),
+                        reverse=True)
         precomp.append((exp, bucket, ranked, keyword_retrieve(msg, k)))
 
     def score(make_set):

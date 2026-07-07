@@ -16,15 +16,10 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Randomized worked examples for model-facing prompts. Any
-#               concrete field name in an example becomes a basin of
-#               attraction the model drifts into on novel questions (measured:
-#               genera_2face appeared in 5 example sites and the model twice
-#               computed genus for a lattice-point question). Sampling the
-#               example's field per PROCESS flattens the attractor across
-#               sessions; CYTOOLS_EXAMPLE_SEED makes a draw reproducible, and
-#               the draw is exposed (EXAMPLE_CHOICES) so session logs can
-#               record it. All human-read.
+# Description:  Randomized worked examples for model-facing prompts. A concrete
+#               field name becomes an attractor the model drifts into, so it is
+#               sampled per process (seed CYTOOLS_EXAMPLE_SEED, draw exposed via
+#               EXAMPLE_CHOICES) to flatten it across sessions. All human-read.
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -32,7 +27,7 @@ import os
 import random
 
 # the pool: (column_name, expression, condition_over_name). Every entry is a
-# REAL get_polytope_info field with a sensible example condition, so any draw
+# real get_polytope_info field with a sensible example condition, so any draw
 # yields a correct, runnable example.
 _POOL = [
     ("n_vertices", "get_polytope_info(ks_ind)['n_vertices']",

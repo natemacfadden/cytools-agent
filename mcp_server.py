@@ -17,9 +17,8 @@
 #
 # -----------------------------------------------------------------------------
 # Description:  MCP server exposing the CYTools tools to MCP clients (e.g.
-#               Claude Code). It registers the SAME MODEL_TOOLS the in-house
-#               agent uses, so FastMCP derives identical names/docstrings/
-#               schemas -- the tools behave the same whichever loop drives them.
+#               Claude Code). Registers the same MODEL_TOOLS the in-house agent
+#               uses, so FastMCP derives identical schemas.
 #
 # Register (stdio), from the repo root:
 #     claude mcp add cytools -- \

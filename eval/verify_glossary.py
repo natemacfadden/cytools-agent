@@ -17,11 +17,11 @@
 #
 # -----------------------------------------------------------------------------
 # Description:  Admission gate for invariants and glossary recipes: every
-#               invariant must hold on a sample of database polytopes
-#               spanning h11 and favorability, and every glossary recipe
-#               must EXECUTE against a fetched polytope. An invariant that
-#               fails here is either wrong (fix or remove it) or has found a
-#               cytools bug (report it) -- both are blocking.
+#               invariant must hold on a sample of database polytopes spanning
+#               h11 and favorability, and every glossary recipe must execute
+#               against a fetched polytope. A failing invariant is either wrong
+#               (fix or remove it) or has found a cytools bug (report it); both
+#               are blocking.
 #
 #     python -m eval.verify_glossary [n_per_h11] [--cy-sample N]
 #

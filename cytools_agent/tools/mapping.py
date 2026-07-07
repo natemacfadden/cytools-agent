@@ -16,17 +16,10 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Harness-side iteration and plotting. The observed capability
-#               wall for small models (FRICTION_LOG capstone) is authoring the
-#               per-item loop that RETAINS paired arrays, and the matplotlib
-#               code that consumes them. These tools absorb both into the
-#               harness: the model supplies a ONE-ITEM expression
-#               (compute_for_each) or names of stored arrays (make_plot); the
-#               harness does the loop, error-skipping, alignment, and figure.
-#
-#               EXPERIMENTAL / A-B GATED: registered with the model only when
-#               CYTOOLS_MAP_TOOLS is set, so eval arms differ only in tool
-#               availability. Module import is side-effect-free without it.
+# Description:  Harness-side iteration and plotting: small models struggle to
+#               write the paired-array loop and matplotlib code (FRICTION_LOG
+#               capstone), so these tools absorb both. A/B gated on
+#               CYTOOLS_MAP_TOOLS (import is side-effect-free without it).
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -62,11 +55,10 @@ _KINDS = {
 
 # human-read
 def _analyze_plot(xv, yv, kind):
-    """Facts about the plotted data the model cannot reliably read off a
-    figure: ranges, constant axes, correlation, outliers. Returned with the
-    figure path so the answer can state the RELATIONSHIP, not just that a
-    plot exists (observed: a technically-correct scatter of constant-y data
-    reported with no mention that there was no relationship to see)."""
+    """Facts about the plotted data the model cannot read off a figure:
+    ranges, constant axes, correlation, outliers. Returned with the figure
+    path so the answer can state the relationship, not just that a plot
+    exists."""
     import math
 
     def stats1(vals, name):
@@ -187,10 +179,10 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
 
     cols = {name: [] for name in exprs}
     ok_ids, errors = [], []
-    # stored ALIGNED columns (numeric lists parallel to a stored ok_ids) are
+    # stored aligned columns (numeric lists parallel to a stored ok_ids) are
     # also offered as id-keyed dicts, so an expression can reference a prior
-    # turn's per-polytope value as e.g. ntfe_count[ks_ind] -- the natural
-    # thing to write (observed), impossible with a bare list
+    # turn's per-polytope value as e.g. ntfe_count[ks_ind] (impossible with a
+    # bare list)
     prev_ids = _code._NS.get("ok_ids")
     by_id = {}
     if isinstance(prev_ids, (list, tuple)) and prev_ids:
@@ -200,7 +192,7 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
                     and len(val) == len(prev_ids)
                     and all(isinstance(e, (int, float)) for e in val)):
                 by_id[name] = dict(zip(prev_ids, val))
-    # stop BEFORE the run_python wall-clock alarm (or our own fallback budget)
+    # stop before the run_python wall-clock alarm (or our own fallback budget)
     # would kill the whole call: partial aligned columns beat losing all work
     t0 = time.monotonic()
     alarm_left = signal.getitimer(signal.ITIMER_REAL)[0]
@@ -245,7 +237,7 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
     }
     if partial_note:
         out["partial"] = partial_note
-    # aggregates computed BY THE HARNESS: the reductions a question usually
+    # aggregates computed by the harness: the reductions a question usually
     # wants (mean/min/max/sum) arrive pre-computed and exactly right, so the
     # model reports them instead of eyeballing arithmetic from a preview
     stats = {}
@@ -544,12 +536,12 @@ def search_polytopes(condition: str, objective: str = "largest_h11",
     }
 
 
-# DEFAULT ON: the map/iteration tools materially raised pass rates in early A/B
+# default on: the map/iteration tools materially raised pass rates in early A/B
 # testing. CYTOOLS_MAP_TOOLS=0 restores the baseline (no map tools).
 MAP_TOOLS_ENABLED = env_flag("CYTOOLS_MAP_TOOLS", default=True)
 
 # A/B gate: only when enabled do the tools enter the run_python namespace and
-# the advertised tool list -- the baseline arm stays byte-identical.
+# the advertised tool list; the baseline arm stays byte-identical.
 if MAP_TOOLS_ENABLED:
     for _fn in (compute_for_each, make_plot, search_polytopes):
         _code._NS[_fn.__name__] = _fn

@@ -54,7 +54,7 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 # When the harness-side iteration tools are enabled (default on; gate
-# CYTOOLS_MAP_TOOLS), reroute the "question over MANY items" case to them
+# CYTOOLS_MAP_TOOLS), reroute the "question over many items" case to them
 # (the tool schemas alone don't tell the model they replace hand-written
 # loops). Mirrors mapping.env_flag without importing the heavy tool chain.
 import os as _os

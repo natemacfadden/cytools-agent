@@ -12,7 +12,7 @@ from .mapping import (MAP_TOOLS_ENABLED, compute_for_each, make_plot,
 # add it so model-written code can call it too.
 _code._NS.setdefault("reference", reference)
 
-# the model-facing tool set -- single source of truth so the in-house agent and
+# the model-facing tool set: single source of truth so the in-house agent and
 # the MCP server expose identical tools (get_cy/get_polytope are run_python
 # namespace helpers, not standalone tools; save_history is Agent-session bound).
 MODEL_TOOLS = [fetch_polytopes, get_polytope_info, ks_stats, get_heights,

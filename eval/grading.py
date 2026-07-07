@@ -18,11 +18,10 @@
 # -----------------------------------------------------------------------------
 # Description:  Model-agnostic corpus run loop, shared by eval.py (local Ollama
 #               agent) and eval_claude.py (headless Claude Code). A
-#               `run_fn(question) -> answer_text` is the only thing that differs
-#               between them, so both are scored by the same typed grader
-#               (eval/answer.py grade_typed) on the same corpus -- directly
-#               comparable. The run_fn is expected to emit a <final> block (wrap
-#               it with eval.emit.finalizing); grading is pure code, no regex.
+#               `run_fn(question) -> answer_text` is the only thing that differs,
+#               so both are scored by the same typed grader (eval/answer.py
+#               grade_typed) on the same corpus, directly comparable. The run_fn
+#               emits a <final> block (wrap it with eval.emit.finalizing).
 #
 # All functions here are human-read (developer tooling).
 # -----------------------------------------------------------------------------
@@ -51,7 +50,7 @@ def _summary(header, npass, nfail, ntimeout):
           f"({ntimeout} timeout) ######", flush=True)
 
 
-# modes -- run_fn(question) -> answer text (or TIMED_OUT)
+# modes: run_fn(question) -> answer text (or TIMED_OUT)
 # ------------------------------------------------------
 def run_sample(run_fn, header, k):
     """Stratified random sample: one question per kind, up to k total."""

@@ -18,9 +18,9 @@
 # -----------------------------------------------------------------------------
 # Description:  Corpus evaluation of Claude Code driving the cytools tools over
 #               MCP (mcp_server.py). Runs `claude -p` headless once per question
-#               and grades the answer with the SAME grader/corpus as eval.py --
-#               so Claude-Code vs the local Ollama agent are directly
-#               comparable. Defaults to the cheapest model (haiku).
+#               and grades the answer with the same grader/corpus as eval.py, so
+#               Claude Code vs the local Ollama agent are directly comparable.
+#               Defaults to the cheapest model (haiku).
 #
 #   Sampling (default): stratified random sample over corpus kinds.
 #     python -m eval.eval_claude [k=12] [--model haiku]

@@ -16,7 +16,7 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  The multi-step corpus: BIG research problems -- each spans many
+# Description:  The multi-step corpus: big research problems, each spanning many
 #               polytopes, a per-item computation, and an aggregate/plot
 #               deliverable, so it exercises planning + decomposition (not a
 #               single tool call).
@@ -24,9 +24,9 @@
 #               Unlike eval/corpus.jsonl (single-fact questions), the deliverable
 #               here is usually a figure plus an analysis, so there is no single
 #               "the answer". Each problem carries a reference `code` that prints
-#               ONE checkable summary statistic (a correlation, a count, a mean)
-#               -- a deterministic anchor a stronger model can verify the run
-#               against. The question text stays GENERAL (it does not dictate the
+#               one checkable summary statistic (a correlation, a count, a mean),
+#               a deterministic anchor a stronger model can verify the run
+#               against. The question text stays general (it doesn't dictate the
 #               method or the exact summary); the code is just one valid solution.
 #
 #   build:  run each problem's reference code, record the printed summary as its

@@ -16,11 +16,10 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Calabi-Yau layer. A CY follows trivially from a triangulation,
-#               so it is rebuilt on demand from (ks_ind, heights). get_cy_info
-#               returns CY invariants (optionally volumes at a Kahler point);
-#               get_cy_cones returns the Mori/Kahler cone; raw objects are
-#               reached in code via get_cy(...) in run_python.
+# Description:  Calabi-Yau layer. A CY is rebuilt on demand from (ks_ind,
+#               heights): get_cy_info returns invariants (optionally volumes at
+#               a Kahler point), get_cy_cones returns the Mori/Kahler cone, and
+#               raw objects come from get_cy(...) in run_python.
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -45,13 +44,13 @@ def _exact_int(v, tol=1e-6):
 # human-read
 class _ResultList(list):
     """A list of per-triangulation result dicts. get_cy_info / get_cy_cones
-    ALWAYS return one of these (length 1 for a single triangulation), so the
-    SAME code works for one CY or many: iterate it (for r in result) or
-    aggregate (min(r['curve_volumes'] for r in result)). As a convenience, when
-    it holds exactly ONE result you may also use it like that dict directly
-    (result['cy_volume'], 'cy_volume' in result, result.keys()). Dict-style
-    access on a MULTI result raises a clear message instead of Python's opaque
-    'list indices must be integers'."""
+    always return one of these (length 1 for a single triangulation), so the
+    same code works for one CY or many: iterate it (for r in result) or
+    aggregate (min(r['curve_volumes'] for r in result)). When it holds exactly
+    one result you may also use it like that dict directly (result['cy_volume'],
+    'cy_volume' in result, result.keys()). Dict-style access on a multi result
+    raises a clear message instead of Python's opaque 'list indices must be
+    integers'."""
 
     def _single(self, op):
         if len(self) == 1:
@@ -126,7 +125,7 @@ def get_cy(ks_ind: str, heights: list[float] | dict | None = None):
     # the star unless asked, and get_cy needs a star triangulation. With no
     # heights, triangulate picks default (Delaunay) heights.
     if heights is None:
-        # flag the confusable case: this is ONE CY, not necessarily the only
+        # flag the confusable case: this is one CY, not necessarily the only
         print("[note: get_cy(ks_ind) built ONE CY from a default triangulation; "
               "this polytope may admit several inequivalent CYs -- enumerate "
               "them with get_heights(ks_ind)['heights'], e.g. get_cy_info(ks_ind, "
@@ -163,7 +162,7 @@ def _mori_cone(cy, which):
                  2-face-equivalent triangulations). Kcup != Mcap; they are
                  duals (rays <-> hyperplanes). Most accurate, costly at large
                  h11.
-      "toric" -> the toric Mori cone of THIS triangulation
+      "toric" -> the toric Mori cone of this triangulation
                  (cy.toric_mori_cone). Its dual is the toric Kahler cone.
                  Cheaper, much faster at large h11.
     """
@@ -175,7 +174,7 @@ def _mori_cone(cy, which):
 
 # human-read
 def _cy_info_one(ks_ind, heights, t, cone):
-    """CY invariants for ONE triangulation (heights is one vector or None);
+    """CY invariants for one triangulation (heights is one vector or None);
     get_cy_info wraps this in a _ResultList. See get_cy_info's docstring."""
     import time as _time
     from cytools_agent.tools import costs

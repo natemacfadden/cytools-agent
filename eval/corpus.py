@@ -42,7 +42,7 @@ PY = sys.executable   # run snippets with the same interpreter as this script
 ROOT = os.path.dirname(os.path.dirname(__file__))
 CORPUS = os.path.join(os.path.dirname(__file__), "corpus.jsonl")
 
-# `build` is provenance for the existing corpus.jsonl, NOT a portable tool: it
+# `build` is provenance for the existing corpus.jsonl, not a portable tool: it
 # scrapes the agent transcripts from the one session that produced the corpus
 # (paths below are machine-specific). `verify` is the reusable entry point.
 TASKS = ("/private/tmp/claude-501/-Users-natemacfadden-cytools-agent/"

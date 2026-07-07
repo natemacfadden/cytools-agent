@@ -16,12 +16,9 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Glossary that maps CYTools / toric-geometry jargon to a plain
-#               definition AND the exact recipe to compute it with these tools.
-#               Lets the model translate a specialized term in a question into
-#               the right operation instead of guessing. Recipes assume `ks_ind` is
-#               a fetched polytope id and, where a CY is needed,
-#               `h = get_heights(ks_ind)["heights"][0]`.
+# Description:  Maps CYTools / toric-geometry jargon to a plain definition plus
+#               the recipe to compute it. Recipes assume `ks_ind` is a fetched
+#               id and `h = get_heights(ks_ind)["heights"][0]`.
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -244,7 +241,7 @@ _GLOSSARY = {
         "|points_not_interior_to_facets| - 5; the sum vanishes exactly when "
         "the polytope is N-favorable.",
         "get_polytope_info(ks_ind)['h11'], get_polytope_info(ks_ind)['h21']",
-        # NB: no bare 'h11'/'h21' synonyms -- they appear as the spec 'h11=X'
+        # NB: no bare 'h11'/'h21' synonyms; they appear as the spec 'h11=X'
         # in almost every question and would false-trigger the scanner.
         ["hodge number", "hodge numbers", "hpq"]),
     "lattice volume": (
@@ -426,7 +423,7 @@ _GLOSSARY = {
 
 
 def _norm(s):
-    """Lowercase, strip punctuation, and DEPLURALIZE tokens (faces -> face)
+    """Lowercase, strip punctuation, and depluralize tokens (faces -> face)
     so 'all of p's 2-faces have ... lattice points' matches the singular
     phrases entries are written in. Trailing-s only; 'ss' kept (class)."""
     s = re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
@@ -468,7 +465,7 @@ def cy_glossary(term: str = "") -> dict:
         return _table_of_contents()
     t = _norm(term)
     tw = set(t.split())
-    # token-aware (NOT raw substring: 'dimension' must not match the 'dimension'
+    # token-aware (not raw substring: 'dimension' must not match the 'dimension'
     # inside 'dimensional', which made cy_glossary('dimension') resolve to
     # '2d reflexive subpolytopes'). Match on whole words.
     cands = [(p, k) for p, k in _PHRASES        # the term's words all in query
@@ -488,7 +485,7 @@ def cy_glossary(term: str = "") -> dict:
 
 
 # append the full vocabulary to the (model-read) docstring so the model can see
-# which terms are covered without a discovery call -- auto-synced to _GLOSSARY,
+# which terms are covered without a discovery call; auto-synced to _GLOSSARY,
 # so it never drifts. (function_to_schema / FastMCP send this to the model.)
 cy_glossary.__doc__ += (
     "\n\n    Known terms (synonyms also match): "
@@ -496,11 +493,10 @@ cy_glossary.__doc__ += (
 
 
 # ---------------------------------------------------------------------------
-# The reference DATABASE: one lookup spanning the source-derived glossary AND
-# the live CYTools API (signatures + docstrings). A conceptual / "how do I"
-# question is answered from THIS, never from the model's own knowledge -- the
-# returned text is glossary definitions and real docstrings, both of which are
-# source-grounded and unfakable.
+# The reference database: one lookup spanning the source-derived glossary and
+# the live CYTools API (signatures + docstrings). Conceptual / "how do I"
+# questions are answered from this, never the model's own knowledge: the text
+# is glossary definitions and real docstrings, both source-grounded.
 # ---------------------------------------------------------------------------
 
 # built lazily on first reference() call (importing cytools classes at module
@@ -516,8 +512,8 @@ _API_STOP = {"get", "compute", "is", "to", "the", "a", "an", "of", "for",
 
 def _build_api_index():
     """Index the API surface a researcher would ask about: the curated tools
-    (preferred -- these are what the model should call) and the public methods
-    of the core CYTools classes (for 'how do I ...' discovery)."""
+    (preferred; what the model should call) and the public methods of the core
+    CYTools classes (for 'how do I ...' discovery)."""
     from cytools_agent.tools import code as _code
     items = [(name, _code._NS[name], True) for name in _code._TOOL_NAMES]
     try:
@@ -580,7 +576,7 @@ def _first_doc(obj, cap: int = 400):
     doc = (inspect.getdoc(obj) or "").strip()
     if not doc:
         return ""
-    # the first paragraph (description), trimmed -- the full text is one
+    # the first paragraph (description), trimmed; the full text is one
     # cytools_help call away
     para = doc.split("\n\n")[0].strip()
     return para[:cap] + ("..." if len(para) > cap else "")
@@ -592,7 +588,7 @@ def _glossary_matches(query: str, limit: int = 6) -> list:
     closest terms."""
     keys = _matched_keys(query)
     if not keys:
-        # token-overlap fallback, but only on DISTINCTIVE words: matching on
+        # token-overlap fallback, but only on distinctive words: matching on
         # generic words ("polytope", "cy") pulled in unrelated terms
         qtoks = {t for t in _norm(query).split()
                  if t not in _API_STOP and len(t) > 1}
@@ -607,11 +603,10 @@ def _glossary_matches(query: str, limit: int = 6) -> list:
     return out
 
 
-# The table of contents over the glossary: ordered sections, each a
-# (title, blurb, [terms]) triple, so the model can BROWSE the knowledge base
-# by topic, not only probe it by exact term. Every _GLOSSARY key must appear
-# in exactly one section -- verify_glossary enforces this, so the index can
-# never silently drift from the content it indexes.
+# The table of contents over the glossary: ordered (title, blurb, [terms])
+# sections, so the model can browse the knowledge base by topic, not only
+# probe it by exact term. Every _GLOSSARY key must appear in exactly one
+# section (verify_glossary enforces this), so the index never drifts.
 _SECTIONS = [
     ("Polytope & lattice geometry",
      "the reflexive polytope itself: its points, faces, dual, and identity",
@@ -647,7 +642,7 @@ _SECTIONS = [
 
 _TERM_SECTION = {t: title for title, _b, terms in _SECTIONS for t in terms}
 
-# the index must EXACTLY partition the glossary: no term left unindexed, none
+# the index must exactly partition the glossary: no term left unindexed, none
 # listed twice or under a stale name. A table of contents that misses a page
 # is a bug, so fail loudly at import rather than let the index drift.
 _indexed = [t for _ti, _b, terms in _SECTIONS for t in terms]
@@ -744,12 +739,12 @@ reference.__doc__ += ("\n\n    Topic sections: "
 
 
 # Terms whose words show up as selectors/specs, not as the asked-for quantity
-# ("first FAVORABLE polytope", "interior to FACETS"), so auto-scanning them is
+# ("first favorable polytope", "interior to facets"), so auto-scanning them is
 # mostly noise. They stay available via the cy_glossary tool + vocabulary list.
 _SCAN_SKIP = {"favorable", "facet", "fine", "regular", "star"}
 
 
-# Markers that appear in MANY recipes / questions and so discriminate nothing
+# Markers that appear in many recipes / questions and so discriminate nothing
 # (a lint keyed on them would fire constantly).
 _MARKER_STOP = {"h11", "h21", "shape", "heights", "count", "tolist", "items",
                 "get", "len", "ks_ind", "tip"}
@@ -759,28 +754,28 @@ _MARKER_STOP = {"h11", "h21", "shape", "heights", "count", "tolist", "items",
 def _recipe_markers(recipe: str) -> set:
     """The discriminative identifiers a recipe computes through: dict fields
     (['curve_volumes']) and method names (.automorphisms(). Generic tokens
-    are dropped, so the survivors mark THIS quantity specifically."""
+    are dropped, so the survivors mark this quantity specifically."""
     fields = set(re.findall(r"\['([A-Za-z0-9_]+)'\]", recipe))
     methods = set(re.findall(r"\.([A-Za-z0-9_]+)\(", recipe))
     return {m for m in fields | methods if m not in _MARKER_STOP}
 
 
-# all known quantity markers across the glossary -- the universe the lint
-# checks "computed a DIFFERENT quantity" against
+# all known quantity markers across the glossary: the universe the lint
+# checks "computed a different quantity" against
 ALL_MARKERS = set().union(
     *(_recipe_markers(r) for _d, r, _s in _GLOSSARY.values()))
 
 
 # human-read
-# function words that carry no term signal -- excluded when counting a
+# function words that carry no term signal, excluded when counting a
 # phrase's "distinctive" words for co-occurrence matching
 _COOC_STOP = {"the", "of", "a", "an", "is", "are", "was", "what", "how", "do",
               "does", "i", "in", "to", "for", "with", "its", "it", "this",
               "that", "at", "be", "on", "and", "or", "as", "first", "second",
               "many", "number", "value", "has", "have", "had", "each", "all",
               "any", "among", "from", "by", "s", "which", "whose", "there",
-              "their", "they"}   # NOTE: "not"/"no" are KEPT distinctive --
-                                 # they separate "points NOT interior to
+              "their", "they"}   # note: "not"/"no" are kept distinctive:
+                                 # they separate "points not interior to
                                  # facets" from "points interior to facets"
 
 # terms whose two content words are commonly split across a sentence and so
@@ -792,10 +787,10 @@ _SHORT_COOC = {"polytope dimension"}
 
 def _matched_keys(message: str) -> set:
     """Glossary keys the message names: contiguous phrase matches, plus a
-    CO-OCCURRENCE fallback for phrases of >=3 distinctive words whose words
-    all appear somewhere in the message -- natural phrasing splits a
-    quantity across the sentence ('2-faces have <=20 lattice points' never
-    contains '2-face lattice points' contiguously)."""
+    co-occurrence fallback for phrases of >=3 distinctive words whose words
+    all appear somewhere in the message. Natural phrasing splits a quantity
+    across the sentence ('2-faces have <=20 lattice points' never contains
+    '2-face lattice points' contiguously)."""
     mtoks = _norm(message).split()
     mset = set(mtoks)
 
@@ -811,7 +806,7 @@ def _matched_keys(message: str) -> set:
         pt = nphrase.split()
         # default co-occurrence: a >=3-word phrase whose words all appear.
         cooc = len(pt) >= 3 and set(pt) <= mset
-        # short co-occurrence: a few terms whose two CONTENT words may be
+        # short co-occurrence: a few terms whose two content words may be
         # split across the sentence ("what dimension is the polytope", "let p
         # be a polytope ... its dimension"). Allowed only for terms in
         # _SHORT_COOC, since for a generic 2-word term one word is often
@@ -824,9 +819,9 @@ def _matched_keys(message: str) -> set:
             if key not in matched or len(ws) > len(matched[key]):
                 matched[key] = ws
     keys = set(matched)
-    # specificity: drop a key whose matching words are a PROPER SUBSET of
-    # another matched key's words -- the more-qualified phrase is the intended
-    # one ('points NOT interior to facets' over 'points interior to facets';
+    # specificity: drop a key whose matching words are a proper subset of
+    # another matched key's words; the more-qualified phrase is the intended
+    # one ('points not interior to facets' over 'points interior to facets';
     # '2-face lattice points' over 'lattice points'). Prevents a negation or
     # qualifier from also matching the bare term.
     drop = {k1 for k1 in keys for k2 in keys
@@ -838,7 +833,7 @@ def _matched_keys(message: str) -> set:
 def expected_by_term(message: str) -> dict:
     """{glossary term -> its recipe markers} for each term the message names
     (same matching as glossary_context). Per-term so a caller can check that
-    EVERY named quantity is computed, not just one of them."""
+    every named quantity is computed, not just one of them."""
     out = {}
     for key in _matched_keys(message):
         m = _recipe_markers(_GLOSSARY[key][1])
@@ -850,21 +845,88 @@ def expected_by_term(message: str) -> dict:
 # human-read
 def expected_markers(message: str) -> set:
     """Markers for the quantities the message actually names (union over
-    expected_by_term). Empty when no term matches -- the lint then has
+    expected_by_term). Empty when no term matches: the lint then has
     nothing to enforce and stays silent."""
     return set().union(*expected_by_term(message).values()) \
         if expected_by_term(message) else set()
 
 
+# --- dense (embedding) retrieval: the hybrid layer over _matched_keys --------
+# Keyword matching (_matched_keys) is precise but blind to paraphrase ("how
+# symmetric is it" never contains "automorphism"). bge-small adds semantic
+# matches within a cosine threshold; glossary_context injects the union.
+# eval/retrieval_bench.py calibrated the threshold (0.75); hybrid beats
+# keyword-only (recall 79->82%, paraphrase 20->50%, no over-fire). Optional:
+# degrades to keyword-only if sentence-transformers is absent, so no hard torch
+# dependency. Loads lazily (first call) on CPU; entries embed once.
+DENSE_ENABLED = True
+DENSE_THRESHOLD = 0.75
+_EMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+_BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+
+_embed_model = None
+_entry_keys = None
+_entry_vecs = None
+_dense_unavailable = False
+
+
+def _ensure_dense() -> bool:
+    """Lazily load bge-small (CPU) and embed each entry's 'term: definition'
+    once. True if dense retrieval is usable; False if disabled, or if
+    sentence-transformers is missing / the load failed (-> keyword-only)."""
+    global _embed_model, _entry_keys, _entry_vecs, _dense_unavailable
+    if _embed_model is not None:
+        return True
+    if _dense_unavailable or not DENSE_ENABLED:
+        return False
+    try:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer(_EMBED_MODEL_NAME, device="cpu")
+        keys = sorted(_GLOSSARY)
+        passages = [f"{k}: {_GLOSSARY[k][0]}" for k in keys]
+        _entry_vecs = model.encode(passages, normalize_embeddings=True)
+        _embed_model, _entry_keys = model, keys
+        return True
+    except Exception:
+        _dense_unavailable = True          # torch/model absent -> keyword-only
+        return False
+
+
+def _regex_keys(message: str, k: int) -> list:
+    """Keyword layer: matched keys, longest phrase first, capped at k."""
+    return sorted(_matched_keys(message), key=lambda s: -len(s))[:k]
+
+
+def _dense_keys(message: str, k: int, threshold: float = None) -> set:
+    """Semantic layer: glossary keys whose entry is within `threshold` cosine of
+    the message (top-k). Empty when dense is unavailable."""
+    if not _ensure_dense():
+        return set()
+    thr = DENSE_THRESHOLD if threshold is None else threshold
+    q = _embed_model.encode([_BGE_QUERY_PREFIX + message],
+                            normalize_embeddings=True)[0]
+    sims = _entry_vecs @ q                  # cosine (vectors are unit-norm)
+    ranked = sorted(zip(sims.tolist(), _entry_keys), reverse=True)
+    return {key for sim, key in ranked[:k] if sim >= thr}
+
+
+def retrieve_keys(message: str, k: int = 3, threshold: float = None) -> list:
+    """Hybrid retrieval for glossary_context: keyword matches first (the
+    precision floor), then semantic matches above threshold, capped at k."""
+    kw = _regex_keys(message, k)
+    dn = _dense_keys(message, k, threshold)
+    return (kw + [x for x in dn if x not in kw])[:k]
+
+
 # human-read
 def glossary_context(message: str, max_terms: int = 3) -> str:
-    """Scan a message for glossary terms (as whole-token phrases) and return
-    their definitions + recipes as a context block, or "" if none. The harness
-    appends this to a user message so the model gets the translation without
-    having to recognize it should look the term up. Conservative by design:
-    when it misses a term, the cy_glossary tool is the backup."""
-    keys = sorted(_matched_keys(message),
-                  key=lambda k: -len(k))[:max_terms]
+    """Scan a message for glossary terms and return their definitions + recipes
+    as a context block, or "" if none. Hybrid retrieval: keyword phrase matches
+    plus semantic (embedding) matches (retrieve_keys). The harness appends this
+    to a user message so the model gets the translation without having to
+    recognize it should look the term up. Conservative by design: when it misses
+    a term, the cy_glossary tool is the backup."""
+    keys = retrieve_keys(message, max_terms)
     if not keys:
         return ""
     lines = ["(CYTools glossary -- terms detected in this request, with the "

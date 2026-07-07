@@ -16,15 +16,11 @@
 # =============================================================================
 #
 # -----------------------------------------------------------------------------
-# Description:  Measured cost model for the expensive operations. The tool
-#               layer records (operation, features, cold/warm, seconds) for
-#               every call -- in memory always, appended to a JSONL when the
-#               dev cache is enabled -- and estimate() answers "what will
-#               this cost if not already done" from accumulated cold-path
-#               measurements (warm calls are ~0 and excluded from fits).
-#               Replaces hand-calibrated difficulty bands with data as it
-#               accrues; falls back to nothing (callers keep their static
-#               guards) when no measurements exist. All human-read.
+# Description:  Measured cost model for the expensive operations. Every call is
+#               recorded (op, features, cold/warm, seconds) in memory, and to a
+#               JSONL when the dev cache is on; estimate() answers "what will
+#               this cost" from cold-path measurements (warm calls ~0). Empty
+#               until measurements accrue. All human-read.
 # -----------------------------------------------------------------------------
 
 # external imports
@@ -97,9 +93,9 @@ def _rows():
 def estimate(op: str, h11: int | None = None, strict: bool = False
              ) -> dict | None:
     """{n, median_s, p90_s} for the cold path of `op`, bucketed by h11 when
-    given. strict=True returns None when the h11 bucket itself is empty
-    (no falling back to all-sizes data -- callers quoting 'cost at this
-    size' must not be fed other sizes' numbers)."""
+    given. strict=True returns None when the h11 bucket itself is empty (no
+    falling back to all-sizes data: callers quoting 'cost at this size' must
+    not be fed other sizes' numbers)."""
     rows = [r for r in _rows()
             if r["op"] == op and r.get("cold") and r.get("ok", True)]
     if h11 is not None:
