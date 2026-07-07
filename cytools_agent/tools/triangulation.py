@@ -181,8 +181,8 @@ def get_heights(ks_ind: str, n: int | None = None, kind: str = "NTFE",
                 hts = p.random_triangulations_gnn(
                     N=n, make_star=True, as_heights=True, seed=seed)
             hts = [[float(x) for x in h] for h in hts]
-            # note BEFORE heights: ledger rows truncate long results, and the
-            # provenance must survive into the evidence
+            # note BEFORE heights: long results get truncated in logs/display,
+            # so the provenance note must come first to survive
             return _HeightsDict({
                 "shape": [len(hts), len(hts[0]) if hts else 0],
                 "note": _GNN_NOTE,

@@ -291,29 +291,6 @@ def namespace_summary():
 
 
 # human-read
-def namespace_detail(per_var=400, total=2000):
-    """Full reprs of the user-defined scratchpad values, for the evidence
-    ledger only -- NOT shown to the model (namespace_summary, which the model
-    sees, stays a lean size hint). This is the debugging counterpart: when a
-    reduction is irreproducible, the actual intermediate values (e.g. the 30
-    booleans behind a sum) are recorded, not just the scalar that was printed.
-    Each value's repr is capped at per_var chars and the whole at total."""
-    parts = []
-    for name, val in _NS.items():
-        if name in _PRELOADED or name.startswith("_") or inspect.ismodule(val):
-            continue
-        try:
-            r = repr(val)
-        except Exception as e:                       # a value that won't repr
-            r = f"<unreprable {type(val).__name__}: {e!r}>"
-        if len(r) > per_var:
-            r = f"{r[:per_var]}...<+{len(r) - per_var} chars>"
-        parts.append(f"{name} = {r}")
-    s = "\n".join(parts)
-    return (f"{s[:total]}...<truncated>" if len(s) > total else s) or "(empty)"
-
-
-# human-read
 def _format_user_traceback(exc, code):
     """A traceback showing ONLY the user's code -- the offending line with its
     source text -- not run_python's exec/compile machinery. The source lines

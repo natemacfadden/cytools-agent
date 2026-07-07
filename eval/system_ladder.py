@@ -179,7 +179,7 @@ def main():
             dt = round(time.monotonic() - t0, 1)
             # exploratory questions have no single truth value: they are
             # graded by the pre-registered rubric (right quantities, adequate
-            # sample, conclusion matches own ledger rows), in a separate pass
+            # sample, conclusion matches its own tool outputs), in a separate pass
             if rows[i].get("kind") == "exploratory" \
                     or rows[i].get("answer") is None:
                 status = "RUBRIC"
