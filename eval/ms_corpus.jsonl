@@ -1,0 +1,10 @@
+{"id": 0, "question": "Across the first 60 polytopes at h11=4, what is the largest automorphism group order? Give the single number.", "answer": 384, "kind": "max-automorphism-order", "source": "scratch/build_msbench.py"}
+{"id": 1, "question": "Among the first 50 polytopes at h11=4, how many are favorable (N-lattice)? Give the count.", "answer": 50, "kind": "count-favorable-N", "source": "scratch/build_msbench.py"}
+{"id": 2, "question": "What is the mean h21 of the first 40 polytopes at h11=4? Round to 2 decimals.", "answer": 45.27, "kind": "mean-h21", "source": "scratch/build_msbench.py"}
+{"id": 3, "question": "Across the first 50 polytopes at h11=4, what is the largest number of lattice points of any of them?", "answer": 9, "kind": "max-n-points", "source": "scratch/build_msbench.py"}
+{"id": 4, "question": "Across the first 50 polytopes at h11=4, what is the most negative Euler characteristic?", "answer": -96, "kind": "min-euler", "source": "scratch/build_msbench.py"}
+{"id": 5, "question": "Among the first 60 polytopes at h11=4, how many have a nontrivial automorphism group (order greater than 1)?", "answer": 41, "kind": "count-nontrivial-symmetry", "source": "scratch/build_msbench.py"}
+{"id": 6, "question": "How many distinct h21 values occur among the first 60 polytopes at h11=4?", "answer": 12, "kind": "distinct-h21", "source": "scratch/build_msbench.py"}
+{"id": 7, "question": "What is the total number of vertices summed over the first 40 polytopes at h11=4?", "answer": 268, "kind": "sum-n-vertices", "source": "scratch/build_msbench.py"}
+{"id": 8, "question": "Among the first 50 polytopes at h11=4, how many are favorable in the M-lattice? Give the count.", "answer": 14, "kind": "count-favorable-M", "source": "scratch/build_msbench.py"}
+{"id": 9, "question": "Among the first 30 polytopes at h11=4, how many have exactly one NTFE triangulation?", "answer": 21, "kind": "count-single-ntfe", "source": "scratch/build_msbench.py"}

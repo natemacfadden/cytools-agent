@@ -23,6 +23,7 @@
 # -----------------------------------------------------------------------------
 
 # external imports
+import difflib
 import os
 import signal
 import time
@@ -215,7 +216,21 @@ def compute_for_each(ks_inds: list[str], expressions: dict | str) -> dict:
             row = {name: eval(c, scope) for name, c in compiled.items()}
         except Exception as e:
             if len(errors) < _MAX_ERRORS:
-                errors.append(f"{ks}: {type(e).__name__}: {e}")
+                msg = f"{ks}: {type(e).__name__}: {e}"
+                # a NameError in the expression is usually the per-item variable
+                # typed wrong (ks_inds for ks_ind) or a stored column misnamed;
+                # point at the right name instead of the raw NameError
+                if isinstance(e, NameError):
+                    miss = getattr(e, "name", "") or ""
+                    near = difflib.get_close_matches(
+                        miss, ["ks_ind"] + [n for n in _code._NS
+                                            if not n.startswith("_")],
+                        n=1, cutoff=0.5)
+                    msg += (" [in the expression the per-item id is `ks_ind` "
+                            "(singular)"
+                            + (f"; did you mean {near[0]!r}?" if near else "")
+                            + "]")
+                errors.append(msg)
             continue
         # keep the id object as-is: fetch ids are _PolytopeId (a str subclass
         # whose ['id']/.ks_ind access is forgiven); str(ks) stripped that
@@ -312,19 +327,35 @@ def make_plot(kind: str, x: str | list, y: str | list | None = None,
     if k is None:
         raise ValueError(f"kind must be one of scatter/histogram/line/bar, "
                          f"got {kind!r}.")
+    # the model often passes color="none"/"None"/"" to mean "no color column";
+    # treat those as no color rather than a (missing) stored-list name
+    if isinstance(color, str) and color.strip().lower() in ("", "none"):
+        color = None
 
     def resolve(v, axis):
         if isinstance(v, str):
             if v in _code._NS and isinstance(_code._NS[v], (list, tuple)):
-                return list(_code._NS[v])
-            lists = [n for n, val in _code._NS.items()
-                     if n not in _code._PRELOADED
-                     and isinstance(val, (list, tuple))]
-            avail = ", ".join(lists) or "(none -- run compute_for_each first)"
+                vals = list(_code._NS[v])
+            else:
+                lists = [n for n, val in _code._NS.items()
+                         if n not in _code._PRELOADED
+                         and isinstance(val, (list, tuple))]
+                avail = ", ".join(lists) or "(none, run compute_for_each first)"
+                raise ValueError(
+                    f"{axis}={v!r} is not a stored list. List-valued scratchpad "
+                    f"variables: {avail}.")
+        else:
+            vals = list(v)
+        # a plot column must be one value per id; a nested column (the raw
+        # per-item list stored by mistake) otherwise blows up later as an
+        # opaque "unhashable type: list". Point at the fix: reduce to a scalar.
+        bad = next((e for e in vals if isinstance(e, (list, tuple, dict))), None)
+        if bad is not None:
             raise ValueError(
-                f"{axis}={v!r} is not a stored list. List-valued scratchpad "
-                f"variables: {avail}.")
-        return list(v)
+                f"{axis}={v!r} has a list per id (e.g. {bad!r}), not one value "
+                f"per id. Reduce each id to a scalar in compute_for_each first "
+                f"(e.g. min(...), max(...), len(...), sum(...)), then plot that.")
+        return vals
 
     xv = resolve(x, "x")
     yv = resolve(y, "y") if y is not None else None
