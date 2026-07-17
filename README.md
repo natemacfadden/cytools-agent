@@ -3,7 +3,7 @@
 
 An agent loop and tool harness that lets a local LLM (via [Ollama](https://ollama.com)) drive [CYTools](https://github.com/LiamMcAllisterGroup/cytools) -- fetching polytopes, computing triangulations and Calabi-Yau invariants, and running arbitrary CYTools code.
 
-It treats the model as *helpful but untrustworthy*, never relying on it for the two things models get wrong: its **knowledge** comes from a source-derived encyclopedia, and its **results** are checked against machine-verified invariants -- a computed value that violates a known identity is refused, not reported ([How it works](#how-it-works)).
+We don't trust the model's CYTools knowledge, so it comes from a curated glossary via RAG. ([How it works](#how-it-works))
 
 > **WARNING -- no sandbox.** The `run_python` tool executes model-generated code directly on your machine, with no isolation. Run only models and prompts you trust, on a machine where that is acceptable.
 
@@ -103,7 +103,7 @@ The system ladder writes self-describing result files (rung, model, corpus, comm
 
 ## How it works
 
-The two things models get wrong -- what they *know* and what they *claim* -- each get a pillar below.
+The model doesn't rely on its own memory: the harness retrieves the relevant glossary entries and feeds them in (RAG), and the model computes values by running the real tools.
 
 ### Design principles
 
@@ -112,19 +112,19 @@ A few principles run underneath everything, all aimed at getting a *weak* model 
 - **Minimize system prompts.** Generic, always-on text acts as noise as much as signal; shape behavior through the tools and harness instead.
 - **Guide the model in directed, stateful ways.** A detailed error message delivered mid-computation, while the model is attempting one concrete thing, lands far better than a general instruction read long ago. (Most error messages here are written for the model, not the developer.)
 - **Be forgiving at the tool boundary.** If a call is unambiguous to a human, support it rather than reject it -- accept the synonym, the stray kwarg, the slightly-off form, and steer from there.
-- **Minimize where we trust the model.** Let the model guide the flow, but hand the judgement of whether a result is correct to something that cannot hallucinate -- machine-checked invariants that refuse a bad value -- not to the model's say-so.
+- **Don't trust the model to recall or compute.** Domain facts come from retrieval and values from the real tools, not the model's memory.
 
 ### Flow of a query
 
 The model runs a plain tool-use loop: it calls the curated tools (or writes code with `run_python`), reads each real result, and keeps going until it has the answer. Mistakes come back as tool errors written for the model, so it corrects on the next step instead of failing silently.
 
-### The two pillars
+### Knowledge from source (RAG)
 
-**The encyclopedia -- knowledge from source.** `cy_glossary` / `reference` map a domain term to a *source-derived* definition and the exact recipe to compute it with these tools. `reference()` is indexed: a table of contents over topic sections, with cross-references, so the model can browse rather than guess. Conceptual questions are answered from that text and from real CYTools docstrings -- never from the model's own memory. An admission gate (`eval/verify_glossary.py`) re-runs every recipe and checks the invariants on ~145 polytopes, to catch the encyclopedia drifting from the library it describes.
+The glossary maps each CYTools term to a definition and the recipe to compute it. For each request the harness retrieves the relevant entries and adds them to the prompt (`glossary_context`), so the model answers from the glossary and real CYTools docstrings, not its own memory. Retrieval is hybrid: keyword matching plus embeddings (`BAAI/bge-small-en-v1.5`), which catches paraphrases the keywords miss; without `sentence-transformers` it falls back to keyword-only.
 
-**Results from evidence.** Computed values are audited against machine-checked identities (`cytools_agent/tools/invariants.py`): a value that violates a known identity, or an expected-integer that is not integral, is refused rather than reported. Every curated tool call is also recorded with its exact arguments and structured result, so a run can be inspected afterward. The data layer is guarded the same way: the KS cache is a read-only trusted base no run can poison, plus a writable overlay for newly discovered polytopes.
+An offline gate (`eval/verify_glossary.py`) runs every recipe against the live library, so the glossary can't drift out of date.
 
-Both pillars are **model-strength-independent**: they help a frontier model as much as a small local one, replacing exactly what no model can be trusted for. (An earlier two-agent orchestration layer sat on top to help a weak model plan multi-step work. It was removed after it consistently underperformed the plain tool loop and added bulk; see [docs/DESIGN_LOG.md](docs/DESIGN_LOG.md).)
+### Flags
 
 Normal use needs none of the knobs below; `setup.sh` configures everything. They are flags, on by default, `=0` to disable:
 
