@@ -103,8 +103,6 @@ The system ladder writes self-describing result files (rung, model, corpus, comm
 
 ## How it works
 
-The model doesn't rely on its own memory: the harness retrieves the relevant glossary entries and feeds them in (RAG), and the model computes values by running the real tools.
-
 ### Design principles
 
 A few principles run underneath everything, all aimed at getting a *weak* model to do *correct* work:
