@@ -105,12 +105,12 @@ The system ladder writes self-describing result files (rung, model, corpus, comm
 
 ### Design principles
 
-A few principles run underneath everything, all aimed at getting a *weak* model to do *correct* work:
+Everything here is aimed at getting a *weak* model to do *correct* work:
 
-- **Minimize system prompts.** Generic, always-on text acts as noise as much as signal; shape behavior through the tools and harness instead.
-- **Guide the model in directed, stateful ways.** A detailed error message delivered mid-computation, while the model is attempting one concrete thing, lands far better than a general instruction read long ago. (Most error messages here are written for the model, not the developer.)
-- **Be forgiving at the tool boundary.** If a call is unambiguous to a human, support it rather than reject it -- accept the synonym, the stray kwarg, the slightly-off form, and steer from there.
-- **Don't trust the model to recall or compute.** Domain facts come from retrieval and values from the real tools, not the model's memory.
+- The system prompt stays minimal. Generic, always-on text acts as noise as much as signal, so behavior is shaped through the tools and harness instead.
+- Guidance is directed and stateful: a detailed error message delivered mid-computation, while the model is attempting one concrete thing, lands far better than a general instruction read long ago. Most error messages here are written for the model, not the developer.
+- The tool boundary is forgiving. If a call is unambiguous to a human, support it rather than reject it -- accept the synonym, the stray kwarg, the slightly-off form, and steer from there.
+- The model is never trusted to recall or compute; domain facts come from retrieval and values from the real tools, not its memory.
 
 ### Flow of a query
 
