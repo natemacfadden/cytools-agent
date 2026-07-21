@@ -4,7 +4,8 @@ Measured demonstration artifacts. Everything in here is produced by
 `python -m eval.system_ladder` and is self-describing: each result file
 carries its rung, model, corpus, ids, reps, git commit, example seed, and
 date alongside the per-question results. Nothing in this tree is edited by
-hand.
+hand. Result files are written locally and are not committed; headline numbers
+will be committed once the eval corpus matures.
 
 ## system_ladder/
 

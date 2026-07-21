@@ -99,7 +99,7 @@ python -m eval.system_ladder --rung L2 --corpus eval/heldout.jsonl --model qwen3
 python -m eval.verify_glossary                        # invariants + recipes admission gate
 ```
 
-The system ladder writes self-describing result files (rung, model, corpus, commit, seed, date + per-question results) to `diagnostics/system_ladder/`, never overwriting a prior run.
+The system ladder writes self-describing result files (rung, model, corpus, commit, seed, date + per-question results) to `diagnostics/system_ladder/`, never overwriting a prior run. Result files are local and not committed; headline numbers will be committed once the eval corpus matures.
 
 ## How it works
 
