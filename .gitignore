@@ -1,6 +1,8 @@
 .ipynb_checkpoints/
 __pycache__/
 *.egg-info/
+# scratch/ stays local; promote DESIGN_LOG-cited evidence files deliberately
+# (git add -f scratch/<file>) or move them into diagnostics/
 scratch/*
 !scratch/.gitkeep
 notebooks/scratch/
@@ -10,7 +12,8 @@ notebooks/scratch/
 *.log
 *.jsonl
 !eval/*.jsonl
-diagnostics/system_ladder/
+# diagnostics/system_ladder/ is TRACKED: committed eval evidence lives here
+# (result JSONs are added deliberately once the corpus matures)
 diagnostics/*.md
 !diagnostics/README.md
 
