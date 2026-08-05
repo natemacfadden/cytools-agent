@@ -29,7 +29,6 @@
 # -----------------------------------------------------------------------------
 
 # external imports
-import os
 import sys
 
 import eval._env  # noqa: F401  (env pins; must precede cytools_agent imports)
