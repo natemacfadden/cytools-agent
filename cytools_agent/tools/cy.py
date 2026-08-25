@@ -191,6 +191,14 @@ def _cy_info_one(ks_ind, heights, t, cone):
                                  for k, v in dok.items()],
         "n_prime_toric_divisors": len(cy.prime_toric_divisors()),
     })
+    if heights is None:
+        # get_cy's matching caveat is a print, which only reaches the model
+        # when the call happens inside run_python; a direct get_cy_info call
+        # (agent loop or MCP client) would otherwise never see it.
+        info["note"] = (
+            "built from ONE default triangulation; this polytope may admit "
+            "several inequivalent CYs -- enumerate them by passing "
+            "heights=get_heights(ks_ind)")
     if t is None:
         costs.record("get_cy_info", _time.monotonic() - _t0,
                      h11=_h11_of(ks_ind), with_t=False)
