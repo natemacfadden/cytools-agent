@@ -215,8 +215,8 @@ def selfcheck():
     notes = []
     total = 0
     for name in ("corpus.jsonl", "corpus_quarantined.jsonl",
-                 "pm_corpus.jsonl", "ms_corpus.jsonl",
-                 "ladder.jsonl", "heldout.jsonl"):
+                 "pm_corpus.jsonl", "pm_corpus_quarantined.jsonl",
+                 "ms_corpus.jsonl", "ladder.jsonl", "heldout.jsonl"):
         path = os.path.join(here, name)
         if not os.path.exists(path):
             continue

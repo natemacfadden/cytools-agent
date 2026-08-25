@@ -29,8 +29,16 @@
 #               against. The question text stays general (it doesn't dictate the
 #               method or the exact summary); the code is just one valid solution.
 #
+#               NOTE: "the question text doesn't dictate the exact summary" is
+#               precisely the defect that quarantined 7 of these 10 -- a
+#               question that does not determine its graded answer measures
+#               whether the agent guessed this script's print, not whether it
+#               did the work. Ids listed in pm_corpus_quarantined.jsonl are
+#               rebuilt into that file, not the active corpus; clear a row's
+#               "quarantined" block only once its question names what it grades.
+#
 #   build:  run each problem's reference code, record the printed summary as its
-#           answer, and (re)write eval/pm_corpus.jsonl.
+#           answer, and (re)write eval/pm_corpus.jsonl (+ the quarantine file).
 #               python -m eval.pm_corpus build [--timeout S] [--ids 0,3,5]
 #   verify: re-run each entry's code and confirm it still prints the answer.
 #               python -m eval.pm_corpus verify
@@ -49,6 +57,8 @@ from eval.corpus import _eq   # shared standalone-output comparison
 PY = sys.executable
 ROOT = os.path.dirname(os.path.dirname(__file__))
 CORPUS = os.path.join(os.path.dirname(__file__), "pm_corpus.jsonl")
+QUARANTINE = os.path.join(os.path.dirname(__file__),
+                          "pm_corpus_quarantined.jsonl")
 
 _PRELUDE = ("import warnings; warnings.filterwarnings('ignore')\n"
             "import numpy as np\n"
@@ -211,10 +221,21 @@ def build(timeout=1200, only=None):
                 print(f"[{i}] {kind}: TIMEOUT (>{timeout}s)", flush=True)
         rows.append({"id": i, "question": q, "answer": ans, "kind": kind,
                      "code": code, "source": "hand-authored", "agent": "coordinator"})
-    with open(CORPUS, "w") as f:
-        for r in rows:
-            f.write(json.dumps(r) + "\n")
-    print(f"wrote {len(rows)} problems -> {CORPUS}")
+
+    # preserve quarantine across rebuilds: a row whose question does not
+    # determine its graded answer must not silently return to scoring.
+    held = {}
+    if os.path.exists(QUARANTINE):
+        held = {r["id"]: r["quarantined"]
+                for r in (json.loads(l) for l in open(QUARANTINE))}
+    active = [r for r in rows if r["id"] not in held]
+    quar = [dict(r, quarantined=held[r["id"]]) for r in rows if r["id"] in held]
+    for path, group in ((CORPUS, active), (QUARANTINE, quar)):
+        with open(path, "w") as f:
+            for r in group:
+                f.write(json.dumps(r) + "\n")
+    print(f"wrote {len(active)} active -> {CORPUS}")
+    print(f"wrote {len(quar)} quarantined -> {QUARANTINE}")
 
 
 def verify(timeout=1200):
