@@ -62,12 +62,14 @@ def run_claude(question, model, timeout):
                            timeout=timeout, cwd=REPO_ROOT)
     except subprocess.TimeoutExpired:
         return TIMED_OUT, 0.0
+    # infra failures use the grader's "(error:" sentinel prefix so grade_typed
+    # quarantines them as ERROR instead of counting them as wrong answers
     if p.returncode != 0:
-        return f"(claude error: {p.stderr.strip()[-150:]})", 0.0
+        return f"(error: claude: {p.stderr.strip()[-150:]})", 0.0
     try:
         d = json.loads(p.stdout)
     except json.JSONDecodeError:
-        return f"(bad json: {p.stdout[:120]})", 0.0
+        return f"(error: bad json: {p.stdout[:120]})", 0.0
     return (d.get("result") or ""), float(d.get("total_cost_usd") or 0.0)
 
 
