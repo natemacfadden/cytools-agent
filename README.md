@@ -73,21 +73,27 @@ The package is an editable install: after `git pull`, just reconnect the server 
 
 ## Evaluation
 
-Three question corpora live under `eval/`, differing by who wrote them and whether the answers are known:
+Question corpora live under `eval/`, differing by who wrote them and whether the answers are known:
 
 | Corpus | Questions | Answers | Written by |
 |---|---|---|---|
-| `eval/corpus.jsonl` | ~100 single-fact | known, with the code that reproduces each | agent-extracted from CYTools example notebooks |
-| `eval/pm_corpus.jsonl` | 10 hard multi-step plot/research | known | agent-authored during development |
+| `eval/corpus.jsonl` | 92 single-fact | known, with the code that reproduces each | agent-extracted from CYTools example notebooks |
+| `eval/pm_corpus.jsonl` | 3 hard multi-step plot/research | known | agent-authored during development |
 | `eval/heldout.jsonl` | 25 authentic research questions | held out (computed later) | **human-written** (frozen; source `n8`) |
 
-(`eval/ladder.jsonl` is a 6-rung difficulty ladder, not a research corpus.) Run from the repo root -- pick the line for the corpus you want:
+(`eval/ladder.jsonl` is a 6-rung difficulty ladder, not a research corpus. `eval/ms_corpus.jsonl` is a frozen smoke corpus: its rows carry no reproduction code, so its answers cannot be verified -- don't score against it.)
+
+Questions whose stored answer isn't determined by the question are held out of every run in a `*_quarantined.jsonl` beside their corpus, never deleted; each row carries its own explanation and restore condition. `eval/corpus_removed.jsonl` is separate -- duplicate facts merged during dedup, kept for provenance and paraphrase material.
+
+Run from the repo root -- pick the line for the corpus you want:
 
 ```sh
 # agent-written, known answers -> auto-graded against the stored truths
 python -m eval.eval qwen3:8b 30                       # stratified sample of corpus.jsonl
 python -m eval.eval qwen3:8b --ids 54,57,58 --reps 3  # targeted re-runs
 python -m eval.corpus verify                          # confirm every stored answer still reproduces
+python -m eval.corpus selfcheck                       # offline: every stored truth must grade against itself
+python -m eval.fuzz_truths                            # offline: which answers lean on an unstated convention
 
 # agent-written hard multi-step problems -> plain agent loop, auto-graded
 python -m eval.eval_single_pm qwen3:8b --corpus eval/pm_corpus.jsonl --reps 3
