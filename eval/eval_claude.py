@@ -47,14 +47,28 @@ from eval.grading import run_sample, run_targeted, TIMED_OUT
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def run_claude(question, model, timeout):
+# Tools that execute model-written code on this machine with no isolation.
+# Granted by default so this arm matches the local agent's capabilities (an
+# unequal tool set would confound the comparison), withheld with --no-code.
+_CODE_TOOLS = ("mcp__cytools__run_python", "mcp__cytools__compute_for_each",
+               "mcp__cytools__search_polytopes")
+
+
+def run_claude(question, model, timeout, allow_code=True):
     """One headless Claude Code run against the cytools MCP server. Returns
-    (answer_text, cost_usd); answer is TIMED_OUT on timeout."""
+    (answer_text, cost_usd); answer is TIMED_OUT on timeout. allow_code=False
+    withholds the code-executing tools (see _CODE_TOOLS)."""
+    if allow_code:
+        allowed = ["mcp__cytools__*"]
+    else:
+        from cytools_agent.tools import MODEL_TOOLS
+        allowed = [f"mcp__cytools__{f.__name__}" for f in MODEL_TOOLS
+                   if f"mcp__cytools__{f.__name__}" not in _CODE_TOOLS]
     cmd = [
         "claude", "-p", question,
         "--model", model,
         "--mcp-config", ".mcp.json", "--strict-mcp-config",
-        "--allowedTools", "mcp__cytools__*",
+        "--allowedTools", ",".join(allowed),
         "--output-format", "json",
     ]
     try:
@@ -73,9 +87,10 @@ def run_claude(question, model, timeout):
     return (d.get("result") or ""), float(d.get("total_cost_usd") or 0.0)
 
 
-USAGE = ("usage: python -m eval.eval_claude [k] [--model haiku]\n"
+USAGE = ("usage: python -m eval.eval_claude [k] [--model haiku] [--no-code]\n"
          "       python -m eval.eval_claude --ids 1,2,3 "
-         "[--reps N] [--timeout S] [--model haiku]")
+         "[--reps N] [--timeout S] [--model haiku] [--no-code]\n"
+         "  --no-code  withhold the unsandboxed code-executing tools")
 
 
 def main():
@@ -92,10 +107,16 @@ def main():
 
     timeout = int(args[args.index("--timeout") + 1]) \
         if "--timeout" in args else 300
+    allow_code = "--no-code" not in args
+    if allow_code:
+        print("###### NOTE: granting run_python / compute_for_each / "
+              "search_polytopes -- these execute model-written code on this "
+              "machine with no sandbox. Use --no-code to withhold. ######",
+              flush=True)
     spent = [0.0]
 
     def _run(q):
-        ans, cost = run_claude(q, model, timeout)
+        ans, cost = run_claude(q, model, timeout, allow_code=allow_code)
         spent[0] += cost
         return ans
 
