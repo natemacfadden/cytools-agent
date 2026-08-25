@@ -167,13 +167,25 @@ class Agent:
                 if hasattr(msg, "model_dump") else msg)
 
             if msg.tool_calls:
-                calls = [(c.id, c.function.name,
-                          json.loads(c.function.arguments))
-                         for c in msg.tool_calls]
+                # a structured call can still carry broken JSON arguments (or
+                # a non-object); represent that as an error the dispatch loop
+                # feeds back as the tool result, instead of crashing the turn
+                calls = []
+                for c in msg.tool_calls:
+                    try:
+                        args = json.loads(c.function.arguments)
+                        if not isinstance(args, dict):
+                            raise ValueError(
+                                f"arguments must be a JSON object, got "
+                                f"{type(args).__name__}")
+                    except (ValueError, TypeError) as e:
+                        args = e
+                    calls.append((c.id, c.function.name, args))
                 if self.verbosity >= 1:
                     for _, name, args in calls:
                         print(f"  -> {_fmt_call(name, args)}"
-                              if self.verbosity >= 2 else f"  -> {name}")
+                              if self.verbosity >= 2 and isinstance(args, dict)
+                              else f"  -> {name}")
             elif (fb := extract_tool_call(msg.content, set(self.tool_impls))):
                 # malformed call -> tell the model what was wrong and retry
                 if "error" in fb:
@@ -224,10 +236,16 @@ class Agent:
 
             for call_id, name, args in calls:
                 _t = time.monotonic()
-                try:
-                    result = self.tool_impls[name](**args)
-                except Exception as e:
-                    result = f"ERROR: {e}"
+                if isinstance(args, Exception):
+                    result = (f"ERROR: tool arguments were not valid JSON "
+                              f"({args}). Re-send the call with arguments as "
+                              f"one JSON object.")
+                    args = {}
+                else:
+                    try:
+                        result = self.tool_impls[name](**args)
+                    except Exception as e:
+                        result = f"ERROR: {e}"
                 dt = time.monotonic() - _t
                 self.timing["tools"] += dt
                 self.tool_secs[name] = self.tool_secs.get(name, 0.0) + dt
