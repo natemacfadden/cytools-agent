@@ -83,42 +83,6 @@ for _name, _obj in _NS.items():
 
 _PRELOADED = list(_NS)   # tool names, captured before run_python adds vars
 
-# --- experiments (b)/(c): harness-captured result nodes --------------------
-# When CAPTURE_RESULT_NODES is on, each run_python call records the real values
-# the model surfaces (its last bare-expression value, and anything it prints)
-# into _NODES. Two consumers:
-#   (b) ECHO_NODE_IDS on  -> also echo "[node N] <repr>" so the model can point
-#       its final answer at a shown node number (it selects, never names a var).
-#   (c) ECHO_NODE_IDS off -> capture silently (output identical to production):
-#       the model types its answer as usual, and the harness later checks that
-#       the typed value matches a captured node, a "watchful eye" that grounds
-#       the answer without asking the model to relocate it.
-# Both default off; production run_python is unchanged. See eval/nodes.py.
-CAPTURE_RESULT_NODES = False
-ECHO_NODE_IDS = False
-_NODES = []              # real objects, index == node id; reset per session
-
-
-def reset_nodes():
-    _NODES.clear()
-
-
-def get_result_node(n):
-    """The real Python object stored as node n. IndexError if n is out of range
-    (the caller treats that as a bad/hallucinated pointer)."""
-    return _NODES[int(n)]
-
-
-_builtin_print = print
-
-
-def _capturing_print(*args, **kwargs):
-    """A print that also records each printed value as a node, so a model that
-    prints its answer (the common case) grounds just like one that leaves a bare
-    expression. Installed into the run_python namespace only while capturing."""
-    for a in args:
-        _NODES.append(a)
-    return _builtin_print(*args, **kwargs)
 # the curated callable tools to steer the model to, not the raw `cytools`
 # module / `np` / `plt` / `Polytope` (telling it to "call cytools" sends it to
 # the raw library, e.g. cytools.fetch_polytopes() with its misleading 1000
@@ -249,7 +213,6 @@ def reset_namespace():
     modules (captured in _PRELOADED) are kept."""
     for name in [n for n in _NS if n not in _PRELOADED]:
         del _NS[name]
-    _NODES.clear()          # experiment (b): result nodes are per-session too
 
 
 # human-read
@@ -353,8 +316,6 @@ def run_python(code: str) -> str:
             f"record), on a SMALLER sample, saving partial results to the "
             f"scratchpad between calls.")
 
-    if CAPTURE_RESULT_NODES:        # record printed values too (idempotent)
-        _NS["print"] = _capturing_print
     buf = io.StringIO()
     if timed:
         _t0 = time.monotonic()
@@ -373,14 +334,7 @@ def run_python(code: str) -> str:
                 val = eval(compile(ast.Expression(last.value), "<run_python>",
                                    "eval"), _NS)
                 if val is not None:
-                    if CAPTURE_RESULT_NODES:
-                        _NODES.append(val)
-                        if ECHO_NODE_IDS:            # (b): show the node number
-                            print(f"[node {len(_NODES) - 1}] {val!r}")
-                        else:                        # (c): silent, normal echo
-                            print(repr(val))
-                    else:
-                        print(repr(val))
+                    print(repr(val))
             else:
                 exec(compile(code, "<run_python>", "exec"), _NS)
         out = buf.getvalue()
