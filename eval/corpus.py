@@ -26,6 +26,13 @@
 #   check that the printed result matches the stored answer.
 #     python -m eval.corpus verify
 #
+#   selfcheck: grade every stored truth against itself through the typed
+#   grader (build_final -> parse_final -> check), across all corpora with
+#   stored answers. Needs no cytools/network; catches truths the grader
+#   cannot represent (a truth that fails selfcheck can never be answered
+#   correctly by any model).
+#     python -m eval.corpus selfcheck
+#
 # All functions here are human-read (developer tooling).
 # -----------------------------------------------------------------------------
 
@@ -179,14 +186,85 @@ def verify():
         print(" ", b)
 
 
+# selfcheck
+# ---------
+def _paraphrase_lint(name, r):
+    """A paraphrase must be the SAME question reworded -- same selection
+    procedure, same quantity. A wording that adds/drops a favorability
+    restriction or changes the Hodge-number filter is a different cut of the
+    database that may only coincidentally pick the same polytope today, so it
+    is rejected here rather than trusted as a paraphrase."""
+    import re
+    probs = []
+    q = r.get("question", "")
+    sig = lambda s: ("favorable" in s.lower(),
+                     sorted(re.findall(r"h(?:11|21)\s*=?\s*\d+", s)))
+    for p in r.get("paraphrases", []):
+        if sig(p) != sig(q):
+            probs.append((name, r.get("id"), r.get("kind"),
+                          "paraphrase changes the selection procedure "
+                          f"(favorability/Hodge filter): {p[:60]!r}"))
+    return probs
+
+def selfcheck():
+    """Every stored truth, graded against itself through the typed grader.
+    Returns the list of failures (empty = all self-gradable)."""
+    from eval.answer import build_final, check, parse_final, truth_kind
+    here = os.path.dirname(__file__)
+    bad = []
+    notes = []
+    total = 0
+    for name in ("corpus.jsonl", "corpus_quarantined.jsonl",
+                 "pm_corpus.jsonl", "ms_corpus.jsonl",
+                 "ladder.jsonl", "heldout.jsonl"):
+        path = os.path.join(here, name)
+        if not os.path.exists(path):
+            continue
+        for line in open(path):
+            r = json.loads(line)
+            truth = r.get("answer")
+            if truth is None:        # held-out rows carry no stored truth
+                continue
+            # a prose string (other than the IMPOSSIBLE marker) is a human
+            # note, not a typed truth -- the <final> contract has no string
+            # kind, so it cannot be auto-graded. Surface it, don't fail it.
+            if (isinstance(truth, str)
+                    and truth.strip().upper() != "IMPOSSIBLE"):
+                notes.append((name, r.get("id"), r.get("kind"), truth))
+                continue
+            total += 1
+            kind = truth_kind(truth)
+            value = None if kind == "impossible" else truth
+            try:
+                ok = check(parse_final(build_final(kind, value)), truth)
+            except Exception as e:
+                ok = False
+                bad.append((name, r.get("id"), r.get("kind"),
+                            f"grader raised {type(e).__name__}: {e}"))
+                continue
+            if not ok:
+                bad.append((name, r.get("id"), r.get("kind"),
+                            "truth does not grade against itself"))
+            bad.extend(_paraphrase_lint(name, r))
+    print(f"selfcheck: {total - len(bad)}/{total} truths self-grade"
+          + (f" ({len(notes)} prose-note answers skipped)" if notes else ""))
+    for n in notes:
+        print("  NOTE (not auto-gradable)", n)
+    for b in bad:
+        print("  BAD", b)
+    return bad
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "build":
         build()
     elif cmd == "verify":
         verify()
+    elif cmd == "selfcheck":
+        sys.exit(1 if selfcheck() else 0)
     else:
-        print("usage: python -m eval.corpus build | verify")
+        print("usage: python -m eval.corpus build | verify | selfcheck")
         sys.exit(0 if cmd in ("-h", "--help") else 1)
 
 
