@@ -31,7 +31,7 @@ agent = Agent(client, model, system_prompt, tools, tool_impls)
 print(agent.chat("Is the first polytope at h11=3 favorable in the N lattice?"))
 ```
 
-It handles focused questions -- a fetch, an invariant, an aggregation -- and can iterate over many polytopes and build plots through the `compute_for_each` / `make_plot` / `search_polytopes` tools.
+It is built for focused questions -- a fetch, an invariant, an aggregation -- and can iterate over many polytopes and build plots through the `compute_for_each` / `make_plot` / `search_polytopes` tools. How reliably a given model actually does any of this is not yet measured; see [Evaluation](#evaluation).
 
 ## Tools
 
@@ -73,6 +73,8 @@ The package is an editable install: after `git pull`, just reconnect the server 
 
 ## Evaluation
 
+> **Status: no results yet.** The grading machinery works and is tested, but no eval run has been recorded under it, so this repo makes **no claim about how well any model performs**. Two things must happen before a number here would mean anything: (1) a **tools-disabled baseline**, since `corpus.jsonl` was extracted from public CYTools notebooks that a model may have memorized -- the informative quantity is the agent-vs-model-alone delta, not the raw score; and (2) a run on **`heldout.jsonl`**, the only corpus not written by this project's own tooling. Until then treat the auto-graded corpora as a **regression suite** -- they catch breakage, they do not measure capability.
+
 Question corpora live under `eval/`, differing by who wrote them and whether the answers are known:
 
 | Corpus | Questions | Answers | Written by |
@@ -107,7 +109,9 @@ python -m eval.system_ladder --rung L2 --corpus eval/heldout.jsonl --model qwen3
 python -m eval.verify_glossary                        # invariants + recipes admission gate
 ```
 
-The system ladder writes self-describing result files (rung, model, corpus, commit, seed, date + per-question results) to `diagnostics/system_ladder/`, never overwriting a prior run. Result files are local and not committed; headline numbers will be committed once the eval corpus matures.
+The system ladder writes self-describing result files (rung, model, corpus, commit, seed, date + per-question results) to `diagnostics/system_ladder/`, never overwriting a prior run. That directory is currently empty: no run has been committed, so no claim in this README rests on measured performance.
+
+When results do get recorded, single runs won't be enough to compare rungs. Scores at these sample sizes are noisy, and an 8B model's output varies run to run, so a rung comparison needs several seeds and should be read through the reported interval and the pass^k line (questions correct on *every* rep) rather than a lone percentage.
 
 ## How it works
 
@@ -128,7 +132,7 @@ The model runs a plain tool-use loop: it calls the curated tools (or writes code
 
 The glossary maps each CYTools term to a definition and the recipe to compute it. For each request the harness retrieves the relevant entries and adds them to the prompt (`glossary_context`), so the model answers from the glossary and real CYTools docstrings, not its own memory. Retrieval is hybrid: keyword matching plus embeddings (`BAAI/bge-small-en-v1.5`), which catches paraphrases the keywords miss; without `sentence-transformers` it falls back to keyword-only.
 
-An offline gate (`eval/verify_glossary.py`) runs every recipe against the live library, so the glossary can't drift out of date.
+An offline gate (`eval/verify_glossary.py`) runs every recipe against the live library and machine-checks the source-cited invariants, so a recipe can't silently stop *working* as CYTools changes. It does not check that a recipe computes the *right* quantity -- a recipe that runs cleanly and returns the wrong thing passes -- and its sample is small-h11, so definitions and large-h11 behavior still rest on author review. Whether the glossary helps a model end to end is likewise unmeasured: retrieval quality was benchmarked (`eval/retrieval_bench.py`), the downstream effect was not.
 
 ### Flags
 
