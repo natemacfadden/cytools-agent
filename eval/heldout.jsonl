@@ -2,7 +2,7 @@
 {"id": 1, "question": "For each h21, what's the smallest number N such that exists a polytope w/ 2-face having <= N points", "answer": null, "kind": "search", "source": "n8"}
 {"id": 2, "question": "What's the smallest h11?", "answer": null, "kind": "single-fact", "source": "n8"}
 {"id": 3, "question": "Can you make a plot of h21 vs h11?", "answer": null, "kind": "plot", "source": "n8"}
-{"id": 4, "question": "What's the largest polytope?", "answer": "the sole polytope with h11=491", "kind": "single-fact", "source": "n8"}
+{"id": 4, "question": "What's the largest polytope?", "answer": null, "kind": "single-fact", "source": "n8"}
 {"id": 5, "question": "Plot the number of NTFEs vs h11<=5.", "answer": null, "kind": "aggregate-plot", "source": "n8"}
 {"id": 6, "question": "How does cy volume scale with kahler moduli? I.e., if I scale kahler moduli t -> s*t, how does CY volume change?", "answer": null, "kind": "conceptual", "source": "n8"}
 {"id": 7, "question": "Can you grab me a polytope with h11=5 as well as all of its NTFEs?", "answer": null, "kind": "fetch-task", "source": "n8"}
