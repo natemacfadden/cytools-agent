@@ -89,6 +89,37 @@ def test_list():
     assert not _c("list", [[2, 1], [3, 4]], [[1, 2], [3, 4]])  # entry perm bad
 
 
+# deeply nested lists (the id32 fix: a dense rank-3 tensor must be gradable)
+# ---------------------------------------------------------------------------
+def test_list_nested_deep():
+    t = [[[0, 1], [1, 1]], [[1, 1], [1, 0]]]      # corpus id 32's truth
+    assert _c("list", t, t)                        # truth must match itself
+    assert _c("list", [t[1], t[0]], t)             # top-level order free
+    assert not _c("list", [[[9, 1], [1, 1]], t[1]], t)   # wrong entry
+    assert not _c("list", [t[0]], t)               # missing entry
+    # internal order is strict at every depth
+    assert not _c("list", [[[1, 0], [1, 1]], t[1]], t)
+    # mixed shapes still orderable/comparable
+    assert _c("list", [1, [2, 3], [[4, 5]]], [[[4, 5]], [2, 3], 1])
+
+
+# truth_kind: the kind a correct answer to a stored truth carries
+# ---------------------------------------------------------------
+def test_truth_kind():
+    from eval.answer import truth_kind
+    assert truth_kind(5) == "int"
+    assert truth_kind(True) == "bool"              # bool before int
+    assert truth_kind(1.46) == "float"
+    assert truth_kind([1, 2]) == "list"
+    assert truth_kind("IMPOSSIBLE") == "impossible"
+    # every corpus truth must self-grade: build -> parse -> check round-trip
+    for t in [5, True, 1.46, [1, 2], [[0, 1], [1, 1]],
+              [[[0, 1], [1, 1]], [[1, 1], [1, 0]]], "IMPOSSIBLE"]:
+        k = truth_kind(t)
+        v = None if k == "impossible" else t
+        assert check(parse_final(build_final(k, v)), t), f"self-grade: {t!r}"
+
+
 # single-value column unwraps to a scalar (the id94 fix)
 # ------------------------------------------------------
 def test_scalar_unwrap():
@@ -109,6 +140,26 @@ def test_impossible():
     assert _c("impossible", None, "IMPOSSIBLE")
     assert not _c("int", 0, "IMPOSSIBLE")            # a number is not "reported impossible"
     assert not _c("impossible", None, 5)             # impossible claim vs real truth
+
+
+# Wilson interval (eval.grading)
+# ------------------------------
+def test_wilson():
+    from eval.grading import wilson
+    lo, hi = wilson(8, 10)
+    assert 0.48 < lo < 0.50 and 0.94 < hi < 0.95   # known value: ~[.490, .943]
+    assert wilson(0, 0) == (0.0, 1.0)
+    lo, hi = wilson(10, 10)
+    assert hi == 1.0 and lo > 0.68                  # no CLT zero-width collapse
+    lo, hi = wilson(0, 10)
+    assert lo == 0.0 and hi < 0.32
+
+
+# every committed corpus truth must be representable by the grader
+# -----------------------------------------------------------------
+def test_corpora_selfgrade():
+    from eval.corpus import selfcheck
+    assert selfcheck() == []
 
 
 # build_final round-trips through parse_final
