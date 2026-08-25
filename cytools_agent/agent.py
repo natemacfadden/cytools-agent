@@ -278,15 +278,26 @@ class Agent:
         when the user has asked for it. ASK THE USER for the path -- do NOT
         invent one.
         """
+        # import exactly the tools this session can call, derived from the
+        # live tool set: a hardcoded list silently goes stale as tools are
+        # added, and the replay then dies on NameError.
+        names = sorted(n for n in self.tool_impls if n != "save_history")
+        wrapped, line = [], "    "
+        for n in names:
+            piece = n + ","
+            if len(line) + len(piece) > 74:
+                wrapped.append(line.rstrip())
+                line = "    "
+            line += piece + " "
+        wrapped.append(line.rstrip().rstrip(","))
         header = [
             "# cytools-agent session script",
             "# run with:  python <this_file>.py",
             "import sys; sys.path.insert(0, '.')",
             "import warnings; warnings.filterwarnings('ignore')",
             "from cytools_agent.tools import (",
-            "    fetch_polytopes, get_polytope_info, ks_stats,",
-            "    get_heights, get_triangulation_info,",
-            "    get_cy_info, get_cy_cones, run_python, cytools_help)",
+            *wrapped,
+            ")",
             "",
         ]
         def _get(m, k):
