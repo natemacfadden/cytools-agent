@@ -142,6 +142,43 @@ def test_impossible():
     assert not _c("impossible", None, 5)             # impossible claim vs real truth
 
 
+# the map-tools env flag must mean the same thing in both readers
+# ----------------------------------------------------------------
+def test_map_tools_flag_agreement():
+    """prompt.py decides whether to ADVERTISE the iteration tools; mapping.py
+    decides whether they EXIST. If the two disagree the system prompt can
+    describe absent tools, so their parsing must match exactly."""
+    import importlib
+    import os
+    from cytools_agent.tools.mapping import env_flag
+
+    def prompt_says(val):
+        if val is None:
+            os.environ.pop("CYTOOLS_MAP_TOOLS", None)
+        else:
+            os.environ["CYTOOLS_MAP_TOOLS"] = val
+        import cytools_agent.prompt as p
+        importlib.reload(p)
+        return "do NOT write" in p.DEFAULT_SYSTEM_PROMPT
+
+    old = os.environ.get("CYTOOLS_MAP_TOOLS")
+    try:
+        for val in (None, "", " ", "0", "1", "false", "FALSE", "off", "yes"):
+            if val is None:
+                os.environ.pop("CYTOOLS_MAP_TOOLS", None)
+                expected = env_flag("CYTOOLS_MAP_TOOLS")
+            else:
+                os.environ["CYTOOLS_MAP_TOOLS"] = val
+                expected = env_flag("CYTOOLS_MAP_TOOLS")
+            assert prompt_says(val) == expected, \
+                f"CYTOOLS_MAP_TOOLS={val!r}: prompt and mapping disagree"
+    finally:
+        if old is None:
+            os.environ.pop("CYTOOLS_MAP_TOOLS", None)
+        else:
+            os.environ["CYTOOLS_MAP_TOOLS"] = old
+
+
 # Wilson interval (eval.grading)
 # ------------------------------
 def test_wilson():
