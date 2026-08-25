@@ -5,7 +5,7 @@ An agent loop and tool harness that lets a local LLM (via [Ollama](https://ollam
 
 We don't trust the model's CYTools knowledge, so it comes from a curated glossary via RAG. ([How it works](#how-it-works))
 
-> **WARNING -- no sandbox.** The `run_python` tool executes model-generated code directly on your machine, with no isolation. Run only models and prompts you trust, on a machine where that is acceptable.
+> **WARNING -- no sandbox.** `run_python` executes model-generated code directly on your machine, with no isolation, and `compute_for_each` / `search_polytopes` likewise `eval()` model-written expressions. Run only models and prompts you trust, on a machine where that is acceptable. `eval/eval_claude.py` grants these tools to headless runs by default -- pass `--no-code` to withhold them.
 
 ## Installation
 
@@ -54,6 +54,8 @@ Polytopes are referenced by canonical string id (`h11-X_h21-Y_ind-Z`); triangula
 | `run_python(code)` | Arbitrary Python in a persistent namespace (preloaded `cytools`, `numpy`, the tools). Escape hatch; captures stdout, auto-saves figures, wall-clock capped. |
 | `cytools_help(name)` | Signature + docstring for a dotted name (e.g. `"Polytope.triangulate"`). API discovery without running code. |
 | `cy_glossary(term)` | Domain term -> definition + the exact recipe to compute it with these tools. |
+| `reference(query="")` | Searchable, indexed reference book -- the glossary's long-form companion for background a one-line definition can't carry. |
+| `find_kahler_for_divisor_volumes(ks_ind, target)` | Solve for Kahler parameters at which the CY's divisor volumes match `target` (the inverse of reading volumes off a given point). |
 
 ## Use from Claude Code (MCP)
 

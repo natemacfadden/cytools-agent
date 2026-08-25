@@ -78,7 +78,7 @@ For AI agents: these notes must be MINIMAL, backed by FACTS/EXPERIMENTS, limit n
 
 - id4 (favorable): orchestrator hits a KeyError on get_polytope_info(...)['favorable'] (real key is favorable_N) and commits "impossible" instead of recovering; happens at both L3 and L4. [evidence: session logs, repeated]
 - id121 (impossible target): reports a volume from a non-converged solve because compute_for_each pulls ['cy_volume'] and drops the converged=False flag; plain L2 sees the whole result and abstains. [evidence: session logs/ledger]
-- fixes parked on branch fix/l3-failures (unmerged): key-hint on missing dict fields, demote non-converged solver fields under `last_iterate`, finalizer maps an execution error to "none" not "impossible". [evidence: written + behavior unit-checked on _InfoDict; NOT validated to change pass rate]
+- fixes from branch fix/l3-failures: key-hint on missing dict fields, demote non-converged solver fields under `last_iterate`, finalizer maps an execution error to "none" not "impossible". [evidence: written + behavior unit-checked on _InfoDict; NOT validated to change pass rate] **(2026-08-25: these are in main -- see cy.py `last_iterate` demotion and polytope.py key hints. The "unmerged" note below was stale.)**
 - prelim full-corpus ladder run started then killed early: at n~10 (~2.5%), L2 >= L3 >= L4. [evidence: WEAK, not significant]
 
 ## (2026-07-02) Starting repo cleanup: removing the orchestration layer
@@ -86,7 +86,7 @@ For AI agents: these notes must be MINIMAL, backed by FACTS/EXPERIMENTS, limit n
 - removing the two-agent orchestrator (cytools_agent/orchestrator/, the L3/L4 rungs, eval_orch.py): worse than the simpler L2, and adds bulk and latency. rationale and failure modes are logged above; the code goes, the lessons stay. [evidence: prior testing summarized above; the clean re-run was only n~10 but reproduced the loss modes]
 - keeping the tool layer, context injection, typed grader, and the L0-L2 ladder.
 - done: deleted cytools_agent/orchestrator/ (+ viewer.py, eval_orch.py), dropped L3/L4 from the ladder, swept stale refs, and repointed README + diagnostics to the L0-L2 story and the Agent loop. ~3.75k lines removed. [evidence: `import cytools_agent` ok, eval modules compile, test_answer 11/11, no code imports the orchestrator]
-- still open: notebooks/demo.ipynb still uses the orchestrator (separate rework); branch fix/l3-failures (tool fixes) still unmerged.
+- still open: notebooks/demo.ipynb still uses the orchestrator (separate rework -- done in the next entry); branch fix/l3-failures (tool fixes) still unmerged. **(2026-08-25: both since resolved -- the notebook was reworked below, and the fix/l3-failures changes are in main.)**
 
 ## (2026-07-02) Demo notebook off the orchestrator
 
