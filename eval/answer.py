@@ -66,6 +66,23 @@ def build_final(kind, value):
     return "<final>" + json.dumps({"kind": kind, "value": value}) + "</final>"
 
 
+def truth_kind(truth):
+    """The <final> kind a fully-correct answer to this stored truth would
+    carry, so a corpus row can be self-graded (build_final(truth_kind(t), t)
+    must PASS against t). bool before int: bool <: int."""
+    if isinstance(truth, str) and truth.strip().upper() == "IMPOSSIBLE":
+        return "impossible"
+    if isinstance(truth, bool):
+        return "bool"
+    if isinstance(truth, int):
+        return "int"
+    if isinstance(truth, float):
+        return "float"
+    if isinstance(truth, (list, tuple)):
+        return "list"
+    return "none"
+
+
 def parse_final(text):
     """The parsed {kind, value} dict from the last valid <final> block, else
     None. Last-wins so a rung that shows an example block earlier and its real
@@ -97,21 +114,24 @@ def _decimals(x):
     return len(s.split(".", 1)[1]) if "." in s else 0
 
 
+def _canon(e):
+    """Canonical form of one entry at any nesting depth: numbers via _round,
+    lists/tuples to tuples element-wise, so a dense rank-3 tensor is as
+    comparable as a flat ray."""
+    if isinstance(e, (list, tuple)):
+        return tuple(_canon(x) for x in e)
+    return _round(e)
+
+
 def _entries(v):
-    """Normalize a list/tuple answer to a sorted list of entries, each entry a
-    tuple of rounded numbers (or a rounded scalar). Order-insensitive at the
-    top level (entry order is arbitrary), but an entry's internal order is
-    preserved, matching the corpus's [i,j,k,value] / ray semantics."""
+    """Normalize a list/tuple answer to a sorted list of entries.
+    Order-insensitive at the top level (entry order is arbitrary), but an
+    entry's internal order is preserved at every depth, matching the corpus's
+    [i,j,k,value] / ray / dense-tensor semantics."""
     if not isinstance(v, (list, tuple)):
         v = [v]
-    out = []
-    for e in v:
-        if isinstance(e, (list, tuple)):
-            out.append(tuple(_round(x) for x in e))
-        else:
-            out.append(_round(e))
     # sort by string form so mixed shapes are still orderable
-    return sorted(out, key=lambda e: str(e))
+    return sorted((_canon(e) for e in v), key=lambda e: str(e))
 
 
 def _list_match(val, truth):
