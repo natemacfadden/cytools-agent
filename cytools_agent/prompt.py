@@ -58,8 +58,12 @@ DEFAULT_SYSTEM_PROMPT = (
 # (the tool schemas alone don't tell the model they replace hand-written
 # loops). Mirrors mapping.env_flag without importing the heavy tool chain.
 import os as _os
-if (_os.environ.get("CYTOOLS_MAP_TOOLS") or "1").strip().lower() \
-        not in ("0", "false", "no", "off"):
+_flag = _os.environ.get("CYTOOLS_MAP_TOOLS")
+# semantics must match mapping.env_flag EXACTLY (test_answer.py pins this):
+# unset -> on; "0"/"false"/"no"/"off"/"" -> off. An empty string counts as off
+# there, so it must here too, or the prompt advertises absent tools.
+if _flag is None or _flag.strip().lower() not in ("0", "false", "no", "off",
+                                                  ""):
     DEFAULT_SYSTEM_PROMPT += (
         " For a per-polytope quantity across many polytopes, do NOT write "
         "your own loop: call compute_for_each(ids, {name: one-item "
